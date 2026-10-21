@@ -53,6 +53,7 @@ struct ContentView: View {
     @EnvironmentObject private var launchAtLogin: LaunchAtLoginManager
     @AppStorage("appearanceMode") private var appearanceMode: AppAppearanceMode = .light
     @State private var section: LibrarySection = .all
+    @State private var showsNotebook = false
     @State private var selectedItem: ClipboardEntry?
     @State private var activePanel: MainPanel?
     @State private var search = ""
@@ -60,7 +61,7 @@ struct ContentView: View {
     @FocusState private var isSearchFocused: Bool
 
     private var visibleItems: [ClipboardEntry] {
-        store.sortedEntries.filter { item in
+        (showsNotebook ? store.sortedNotebookEntries : store.sortedEntries).filter { item in
             (section == .all || item.kind.rawValue == section.rawValue) &&
             (search.isEmpty || item.searchText.localizedCaseInsensitiveContains(search))
         }
@@ -74,9 +75,9 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: ClipboardLayout.cardGap) {
                     if visibleItems.isEmpty {
                         ContentUnavailableView(
-                            search.isEmpty ? "暂无剪贴板记录" : "没有匹配的记录",
-                            systemImage: "doc.on.clipboard",
-                            description: Text(search.isEmpty ? "复制文字、图片或文件后会自动出现在这里。" : "试试其他搜索词。")
+                            search.isEmpty ? (showsNotebook ? "记事本还是空的" : "暂无剪贴板记录") : "没有匹配的记录",
+                            systemImage: showsNotebook ? "book.closed" : "doc.on.clipboard",
+                            description: Text(search.isEmpty ? (showsNotebook ? "在历史记录上右键，选择「加入记事本」。" : "复制文字、图片或文件后会自动出现在这里。") : "试试其他搜索词。")
                         )
                         .frame(maxWidth: .infinity, minHeight: 300)
                     } else {
@@ -100,6 +101,7 @@ struct ContentView: View {
         .foregroundStyle(ClipboardTheme.primary)
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 420, maxWidth: 460, minHeight: 440)
+        .modifier(NotebookErrorAlert(isEnabled: activePanel == nil && selectedItem == nil))
         .sheet(item: $selectedItem) { item in
             EntryDetail(item: item)
                 .frame(width: 420, height: 420)
@@ -131,6 +133,7 @@ struct ContentView: View {
             .foregroundStyle(ClipboardTheme.primary)
             .background(ClipboardTheme.pageBackground)
             .frame(width: 390, height: 440)
+            .modifier(NotebookErrorAlert())
             .onAppear { launchAtLogin.refresh() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 launchAtLogin.refresh()
@@ -163,6 +166,13 @@ struct ContentView: View {
                 ToolbarIconButton(symbol: "magnifyingglass", title: "展开搜索") {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { isSearchExpanded = true }
                     isSearchFocused = true
+                }
+            }
+            NotebookToggle(isSelected: showsNotebook) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                    showsNotebook.toggle()
+                    section = .all
+                    search = ""
                 }
             }
             if !isSearchExpanded {
@@ -257,6 +267,29 @@ struct ContentView: View {
                 Button("清空未置顶记录", role: .destructive) { store.clearUnpinned() }
                     .foregroundStyle(ClipboardTheme.dangerText)
             }
+            Section("记事本") {
+                Button {
+                    NSWorkspace.shared.open(store.notebookDirectory)
+                } label: {
+                    Label {
+                        Text(store.notebookDirectory.path)
+                            .font(.system(size: 11))
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    } icon: { Image(systemName: "folder") }
+                }
+                .help("在访达中打开记事本目录")
+                Button(action: store.chooseNotebookDirectory) {
+                    HStack {
+                        Text(store.notebookBusy ? "正在保存或迁移…" : "更改保存位置…")
+                        if store.notebookBusy { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(store.notebookBusy)
+                Text("加入时保存独立副本，永久保留；更改位置会迁移已有内容。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ClipboardTheme.secondary)
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("设置")
@@ -306,7 +339,7 @@ private struct CategoryButton: View {
                 .foregroundStyle(colorScheme == .light && isSelected ? .white : iconTint.opacity(colorScheme == .light || isSelected || isHovered ? 1 : 0.82))
                 .brightness(colorScheme == .dark && isHovered ? 0.08 : 0)
                 .shadow(color: iconTint.opacity(isHovered ? 0.14 : 0), radius: 3)
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 28)
                 .background(buttonFill, in: Capsule())
                 .overlay {
                     Capsule().strokeBorder(iconTint.opacity(isHovered ? 0.4 : 0), lineWidth: 1)
@@ -544,12 +577,17 @@ struct MenuPopoverView: View {
     @State private var copiedItemID: UUID?
     @State private var copyFeedbackToken = 0
     @State private var sessionOrder: [UUID] = []
+    @State private var showsNotebook = false
+
+    private var sortedItems: [ClipboardEntry] {
+        showsNotebook ? store.sortedNotebookEntries : store.sortedEntries
+    }
 
     private var visibleItems: [ClipboardEntry] {
-        let entriesByID = Dictionary(uniqueKeysWithValues: store.entries.map { ($0.id, $0) })
+        let entriesByID = Dictionary(uniqueKeysWithValues: sortedItems.map { ($0.id, $0) })
         let knownIDs = Set(sessionOrder)
         let existing = sessionOrder.compactMap { entriesByID[$0] }
-        let added = store.sortedEntries.filter { !knownIDs.contains($0.id) }
+        let added = sortedItems.filter { !knownIDs.contains($0.id) }
         return (existing + added).filter { search.isEmpty || $0.searchText.localizedCaseInsensitiveContains(search) }
     }
 
@@ -577,6 +615,12 @@ struct MenuPopoverView: View {
                 .frame(height: 36)
                 .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
 
+                NotebookToggle(isSelected: showsNotebook) {
+                    showsNotebook.toggle()
+                    search = ""
+                    copiedItemID = nil
+                    sessionOrder = sortedItems.map(\.id)
+                }
                 ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口") {
                     AppWindowCoordinator.showMainWindow { openWindow(id: "main") }
                 }
@@ -589,9 +633,10 @@ struct MenuPopoverView: View {
                 LazyVStack(spacing: ClipboardLayout.cardGap) {
                     ForEach(visibleItems) { item in
                         Button {
-                            store.copy(item)
-                            copiedItemID = item.id
-                            copyFeedbackToken += 1
+                            if store.copy(item) {
+                                copiedItemID = item.id
+                                copyFeedbackToken += 1
+                            }
                         } label: {
                             PopoverHistoryCard(item: item, isCopied: copiedItemID == item.id)
                         }
@@ -605,9 +650,9 @@ struct MenuPopoverView: View {
             .overlay {
                 if visibleItems.isEmpty {
                     ContentUnavailableView(
-                        search.isEmpty ? "暂无剪贴板记录" : "没有匹配的记录",
-                        systemImage: search.isEmpty ? "doc.on.clipboard" : "magnifyingglass",
-                        description: Text(search.isEmpty ? "复制内容后会自动出现在这里。" : "试试其他搜索词。")
+                        search.isEmpty ? (showsNotebook ? "记事本还是空的" : "暂无剪贴板记录") : "没有匹配的记录",
+                        systemImage: search.isEmpty ? (showsNotebook ? "book.closed" : "doc.on.clipboard") : "magnifyingglass",
+                        description: Text(search.isEmpty ? (showsNotebook ? "在历史记录上右键，选择「加入记事本」。" : "复制内容后会自动出现在这里。") : "试试其他搜索词。")
                     )
                 }
             }
@@ -615,19 +660,20 @@ struct MenuPopoverView: View {
         .background(ClipboardTheme.pageBackground)
         .foregroundStyle(ClipboardTheme.primary)
         .frame(width: 390, height: 520)
+        .modifier(NotebookErrorAlert())
         .background {
             AppWindowObserver(role: .popover) { isVisible in
                 if isVisible {
-                    sessionOrder = store.sortedEntries.map(\.id)
+                    beginHistorySession()
                 } else {
                     copiedItemID = nil
                 }
             }
             .allowsHitTesting(false)
         }
-        .onAppear { sessionOrder = store.sortedEntries.map(\.id) }
+        .onAppear { beginHistorySession() }
         .onChange(of: store.sortOrder) { _, _ in
-            sessionOrder = store.sortedEntries.map(\.id)
+            sessionOrder = sortedItems.map(\.id)
         }
         .task(id: copyFeedbackToken) {
             guard copiedItemID != nil else { return }
@@ -638,6 +684,13 @@ struct MenuPopoverView: View {
             } catch { }
         }
         .onDisappear { copiedItemID = nil }
+    }
+
+    private func beginHistorySession() {
+        showsNotebook = false
+        search = ""
+        copiedItemID = nil
+        sessionOrder = store.sortedEntries.map(\.id)
     }
 }
 
@@ -703,25 +756,35 @@ private struct EntryContextMenu: View {
     let item: ClipboardEntry
     var body: some View {
         Button("再次复制", systemImage: "doc.on.doc") { store.copy(item) }
+        if !item.isNotebookEntry {
+            Button(store.isInNotebook(item) ? "已加入记事本" : "加入记事本", systemImage: "book.closed") {
+                store.addToNotebook(item)
+            }
+            .disabled(store.notebookBusy || store.isInNotebook(item))
+        }
         Button(item.isPinned ? "取消置顶" : "置顶", systemImage: "pin") { store.togglePin(item) }
         if let url = item.firstFileURL {
             Button("在访达中显示", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
         Divider()
-        Button("删除记录", systemImage: "trash", role: .destructive) { store.delete(item) }
+        Button(item.isNotebookEntry ? "从记事本移除" : "删除记录", systemImage: "trash", role: .destructive) { store.delete(item) }
+            .disabled(item.isNotebookEntry && store.notebookBusy)
     }
 }
 
 private struct EntryDetail: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.dismiss) private var dismiss
+    @State private var hasCopied = false
+    @State private var copyFailed = false
     let item: ClipboardEntry
 
     private var accent: Color { AppIconPalette.color(for: item.sourceBundleID) }
 
     private var currentItem: ClipboardEntry {
-        store.entries.first { $0.id == item.id } ?? item
+        (item.isNotebookEntry ? store.notebookEntries : store.entries).first { $0.id == item.id } ?? item
     }
 
     var body: some View {
@@ -777,16 +840,32 @@ private struct EntryDetail: View {
                         .foregroundStyle(ClipboardTheme.secondary)
                     }
                     Spacer(minLength: 0)
-                    Button { store.copy(item) } label: {
-                        Image(systemName: "doc.on.doc.fill")
+                    Button {
+                        guard !hasCopied else { return }
+                        if store.copy(currentItem) {
+                            hasCopied = true
+                            copyFailed = false
+                        } else {
+                            copyFailed = true
+                        }
+                    } label: {
+                        Image(systemName: hasCopied ? "checkmark" : (copyFailed ? "exclamationmark" : "doc.on.doc.fill"))
+                            .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 40, height: 40)
-                            .foregroundStyle(ClipboardTheme.actionForeground)
-                            .background(ClipboardTheme.actionFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
+                            .foregroundStyle(hasCopied ? ClipboardTheme.successText : ClipboardTheme.actionForeground)
+                            .background(hasCopied ? ClipboardTheme.successFill : ClipboardTheme.actionFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
                     }
                     .buttonStyle(ClipboardControlStyle())
-                    .accessibilityLabel("再次复制")
-                    .help("再次复制")
+                    .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.7), value: hasCopied)
+                    .accessibilityLabel(hasCopied ? "已复制" : (copyFailed ? "复制失败，请检查原文件后重试" : "再次复制"))
+                    .help(hasCopied ? "已复制" : (copyFailed ? "复制失败，请检查原文件后重试" : "再次复制"))
+                    .task(id: hasCopied) {
+                        guard hasCopied else { return }
+                        try? await Task.sleep(for: .milliseconds(400))
+                        guard !Task.isCancelled else { return }
+                        dismiss()
+                    }
                 }
                 .lineLimit(1)
                 .padding(ClipboardLayout.pageInset)
@@ -801,6 +880,7 @@ private struct EntryDetail: View {
 
     @ViewBuilder
     private var detailContent: some View {
+        let item = currentItem
         switch item.kind {
         case .text:
             if let rich = store.richText(for: item) {

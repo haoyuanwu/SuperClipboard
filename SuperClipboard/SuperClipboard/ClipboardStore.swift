@@ -38,6 +38,9 @@ struct ClipboardEntry: Codable, Identifiable {
     var lastCopiedAt: Date
     var copyCount: Int
     var isPinned: Bool
+    var notebookFolderName: String? = nil
+
+    var isNotebookEntry: Bool { notebookFolderName != nil }
 
     var title: String {
         switch kind {
@@ -54,31 +57,50 @@ struct ClipboardEntry: Codable, Identifiable {
 @MainActor
 final class ClipboardStore: ObservableObject {
     @Published private(set) var entries: [ClipboardEntry] = []
+    @Published private(set) var notebookEntries: [ClipboardEntry] = []
+    @Published private(set) var notebookDirectory: URL
+    @Published private(set) var notebookBusy = false
+    @Published var notebookError: String?
     @Published var sortOrder: ClipboardSortOrder = .recent {
-        didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder") }
+        didSet { defaults.set(sortOrder.rawValue, forKey: "sortOrder") }
     }
     @Published var maxEntries: Int = 500 {
-        didSet { UserDefaults.standard.set(maxEntries, forKey: "maxEntries"); trimAndSave() }
+        didSet { defaults.set(maxEntries, forKey: "maxEntries"); trimAndSave() }
     }
 
-    private let pasteboard = NSPasteboard.general
+    private let pasteboard: NSPasteboard
+    private let defaults: UserDefaults
     private let folder: URL
     private var lastChangeCount: Int
     private var timer: Timer?
     private var pendingVideoThumbnails: Set<UUID> = []
     private var failedVideoThumbnails: Set<UUID> = []
+    private var archivingHistoryIDs: Set<UUID> = []
+    private var notebookLoadFailed = false
 
     var sortedEntries: [ClipboardEntry] {
-        entries.sorted { lhs, rhs in
+        sorted(entries)
+    }
+
+    var sortedNotebookEntries: [ClipboardEntry] { sorted(notebookEntries) }
+
+    private func sorted(_ items: [ClipboardEntry]) -> [ClipboardEntry] {
+        items.sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
             if sortOrder == .frequency && lhs.copyCount != rhs.copyCount { return lhs.copyCount > rhs.copyCount }
             return lhs.lastCopiedAt > rhs.lastCopiedAt
         }
     }
 
-    init() {
-        folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    init(storageDirectory: URL? = nil, defaults: UserDefaults = .standard,
+         pasteboard: NSPasteboard = .general, observesPasteboard: Bool = true) {
+        self.defaults = defaults
+        self.pasteboard = pasteboard
+        folder = storageDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SuperClipboard", isDirectory: true)
+        notebookDirectory = defaults.string(forKey: "notebookDirectory")
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? folder.appendingPathComponent("Notebook", isDirectory: true)
         lastChangeCount = pasteboard.changeCount
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: folder.appendingPathComponent("history.json")),
@@ -95,13 +117,25 @@ final class ClipboardStore: ObservableObject {
             }
         }
         if migratedImageFiles { save() }
-        if let raw = UserDefaults.standard.string(forKey: "sortOrder"), let order = ClipboardSortOrder(rawValue: raw) {
+        do {
+            try FileManager.default.createDirectory(at: notebookDirectory, withIntermediateDirectories: true)
+            let indexURL = notebookDirectory.appendingPathComponent("notebook.json")
+            if FileManager.default.fileExists(atPath: indexURL.path) {
+                notebookEntries = try JSONDecoder().decode([ClipboardEntry].self, from: Data(contentsOf: indexURL))
+            }
+        } catch {
+            notebookLoadFailed = true
+            notebookError = "无法读取记事本：\(error.localizedDescription)"
+        }
+        if let raw = defaults.string(forKey: "sortOrder"), let order = ClipboardSortOrder(rawValue: raw) {
             sortOrder = order
         }
-        if let count = UserDefaults.standard.object(forKey: "maxEntries") as? Int { maxEntries = count }
+        if let count = defaults.object(forKey: "maxEntries") as? Int { maxEntries = count }
         for item in entries where item.kind == .video { ensureVideoThumbnail(for: item) }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkPasteboard() }
+        if observesPasteboard {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkPasteboard() }
+            }
         }
     }
 
@@ -216,51 +250,74 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
-    func copy(_ item: ClipboardEntry) {
+    @discardableResult
+    func copy(_ item: ClipboardEntry) -> Bool {
         switch item.kind {
         case .text:
             pasteboard.clearContents()
-            if let name = item.payloadName, let data = try? Data(contentsOf: folder.appendingPathComponent(name)) {
+            if let name = item.payloadName, let data = try? Data(contentsOf: storageFolder(for: item).appendingPathComponent(name)) {
                 pasteboard.setData(data, forType: .rtf)
             }
-            pasteboard.setString(item.plainText ?? "", forType: .string)
+            guard pasteboard.setString(item.plainText ?? "", forType: .string) else { return false }
         case .image:
             if let name = item.payloadName,
-               let data = try? Data(contentsOf: folder.appendingPathComponent(name)),
+               let data = try? Data(contentsOf: storageFolder(for: item).appendingPathComponent(name)),
                let image = NSImage(data: data) {
                 pasteboard.clearContents()
-                pasteboard.writeObjects([image])
+                guard pasteboard.writeObjects([image]) else { return false }
                 break
             }
             if !item.filePaths.isEmpty {
                 let urls = item.filePaths.map { URL(fileURLWithPath: $0) }
-                guard urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return }
+                guard urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return false }
                 pasteboard.clearContents()
-                pasteboard.writeObjects(urls as [NSURL])
+                guard pasteboard.writeObjects(urls as [NSURL]) else { return false }
                 break
             }
-            return
+            return false
         case .file, .video:
             let urls = item.filePaths.map { URL(fileURLWithPath: $0) }
-            guard urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return }
+            guard !urls.isEmpty, urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return false }
             pasteboard.clearContents()
-            pasteboard.writeObjects(urls as [NSURL])
+            guard pasteboard.writeObjects(urls as [NSURL]) else { return false }
         }
         lastChangeCount = pasteboard.changeCount
-        if let index = entries.firstIndex(where: { $0.id == item.id }) {
+        if item.isNotebookEntry, let index = notebookEntries.firstIndex(where: { $0.id == item.id }) {
+            notebookEntries[index].copyCount += 1
+            notebookEntries[index].lastCopiedAt = Date()
+            persistNotebook()
+        } else if let index = entries.firstIndex(where: { $0.id == item.id }) {
             entries[index].copyCount += 1
             entries[index].lastCopiedAt = Date()
             save()
         }
+        return true
     }
 
     func togglePin(_ item: ClipboardEntry) {
+        if item.isNotebookEntry, let index = notebookEntries.firstIndex(where: { $0.id == item.id }) {
+            notebookEntries[index].isPinned.toggle()
+            persistNotebook()
+            return
+        }
         guard let index = entries.firstIndex(where: { $0.id == item.id }) else { return }
         entries[index].isPinned.toggle()
         save()
     }
 
     func delete(_ item: ClipboardEntry) {
+        if item.isNotebookEntry {
+            guard !notebookBusy else { return }
+            let remaining = notebookEntries.filter { $0.id != item.id }
+            do {
+                try writeNotebook(remaining, to: notebookDirectory)
+                notebookEntries = remaining
+                if let name = item.notebookFolderName {
+                    try? FileManager.default.removeItem(at: notebookDirectory.appendingPathComponent(name))
+                }
+            } catch { notebookError = "无法移除记事本条目：\(error.localizedDescription)" }
+            return
+        }
         entries.removeAll { $0.id == item.id }
         removeFiles(for: item)
         save()
@@ -272,9 +329,122 @@ final class ClipboardStore: ObservableObject {
         save()
     }
 
+    func isInNotebook(_ item: ClipboardEntry) -> Bool {
+        notebookEntries.contains { $0.fingerprint == item.fingerprint }
+    }
+
+    private func storageFolder(for item: ClipboardEntry) -> URL {
+        guard let name = item.notebookFolderName else { return folder }
+        return notebookDirectory.appendingPathComponent(name, isDirectory: true)
+    }
+
+    func addToNotebook(_ item: ClipboardEntry) {
+        guard !notebookBusy, !isInNotebook(item) else { return }
+        guard !notebookLoadFailed else {
+            notebookError = "请先恢复记事本目录中的 notebook.json，避免覆盖已有存档。"
+            return
+        }
+        notebookBusy = true
+        archivingHistoryIDs.insert(item.id)
+        let sourceFolder = storageFolder(for: item)
+        let destination = notebookDirectory
+        let archiveID = UUID()
+        let thumbnail = item.thumbnailName ?? (item.kind == .video ? "\(item.id.uuidString)-thumbnail.png" : nil)
+        Task {
+            defer {
+                notebookBusy = false
+                archivingHistoryIDs.remove(item.id)
+                if !entries.contains(where: { $0.id == item.id }) { removeFiles(for: item) }
+            }
+            do {
+                let snapshot = try await Task.detached(priority: .userInitiated) {
+                    try NotebookStorage.archive(id: archiveID, sourceFolder: sourceFolder, destination: destination,
+                                                filePaths: item.filePaths, payloadName: item.payloadName,
+                                                thumbnailName: thumbnail, requiresFiles: item.kind == .file || item.kind == .video,
+                                                requiresImage: item.kind == .image)
+                }.value
+                var archived = item
+                archived.id = archiveID
+                archived.isPinned = false
+                archived.notebookFolderName = snapshot.directoryName
+                archived.filePaths = snapshot.filePaths
+                archived.payloadName = snapshot.payloadName
+                archived.thumbnailName = snapshot.thumbnailName
+                let updated = [archived] + notebookEntries
+                do {
+                    try writeNotebook(updated, to: destination)
+                } catch {
+                    try? FileManager.default.removeItem(at: destination.appendingPathComponent(snapshot.directoryName))
+                    throw error
+                }
+                notebookEntries = updated
+                if archived.kind == .video { ensureVideoThumbnail(for: archived) }
+            } catch { notebookError = "加入记事本失败：\(error.localizedDescription)" }
+        }
+    }
+
+    func chooseNotebookDirectory() {
+        guard !notebookBusy else { return }
+        guard !notebookLoadFailed else {
+            notebookError = "请先恢复记事本目录中的 notebook.json，再迁移保存位置。"
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择并迁移"
+        panel.message = "将在所选位置创建 SuperClipboard Notebook 文件夹，并迁移已有记事本。"
+        guard panel.runModal() == .OK, let parent = panel.url else { return }
+        changeNotebookDirectory(to: parent.appendingPathComponent("SuperClipboard Notebook", isDirectory: true))
+    }
+
+    func changeNotebookDirectory(to destination: URL) {
+        guard !notebookBusy, !notebookLoadFailed else { return }
+        guard destination.resolvingSymlinksInPath().standardizedFileURL.path != notebookDirectory.resolvingSymlinksInPath().standardizedFileURL.path else { return }
+        let source = notebookDirectory
+        notebookBusy = true
+        Task {
+            defer { notebookBusy = false }
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try NotebookStorage.relocate(from: source, to: destination)
+                }.value
+                var relocated = notebookEntries
+                for index in relocated.indices {
+                    relocated[index].filePaths = relocated[index].filePaths.map { path in
+                        let prefix = source.path + "/"
+                        return path.hasPrefix(prefix) ? destination.appendingPathComponent(String(path.dropFirst(prefix.count))).path : path
+                    }
+                }
+                do {
+                    try writeNotebook(relocated, to: destination)
+                } catch {
+                    try? FileManager.default.removeItem(at: destination)
+                    throw error
+                }
+                defaults.set(destination.path, forKey: "notebookDirectory")
+                notebookDirectory = destination
+                notebookEntries = relocated
+                try? FileManager.default.removeItem(at: source)
+            } catch { notebookError = "迁移记事本失败：\(error.localizedDescription)" }
+        }
+    }
+
+    private func writeNotebook(_ items: [ClipboardEntry], to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(items).write(to: directory.appendingPathComponent("notebook.json"), options: .atomic)
+    }
+
+    private func persistNotebook() {
+        do { try writeNotebook(notebookEntries, to: notebookDirectory) }
+        catch { notebookError = "保存记事本失败：\(error.localizedDescription)" }
+    }
+
     func richText(for item: ClipboardEntry) -> NSAttributedString? {
         guard item.kind == .text, let name = item.payloadName,
-              let data = try? Data(contentsOf: folder.appendingPathComponent(name)) else { return nil }
+              let data = try? Data(contentsOf: storageFolder(for: item).appendingPathComponent(name)) else { return nil }
         var documentAttributes: NSDictionary?
         guard let attributed = NSAttributedString(rtf: data, documentAttributes: &documentAttributes) else { return nil }
         let background = documentAttributes?[NSAttributedString.DocumentAttributeKey.backgroundColor]
@@ -291,7 +461,7 @@ final class ClipboardStore: ObservableObject {
             ?? (item.kind == .image ? item.payloadName : nil)
             ?? (item.kind == .video ? "\(item.id.uuidString)-thumbnail.png" : nil)
         if let name = cachedName {
-            if let image = NSImage(contentsOf: folder.appendingPathComponent(name)) { return image }
+            if let image = NSImage(contentsOf: storageFolder(for: item).appendingPathComponent(name)) { return image }
         }
         if item.kind == .video { ensureVideoThumbnail(for: item) }
         if item.kind == .image, let url = item.firstFileURL {
@@ -304,10 +474,12 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func ensureVideoThumbnail(for item: ClipboardEntry) {
+        // A notebook uses the thumbnail copied at archive time, or its own video.
         guard item.kind == .video, let url = item.firstFileURL,
               !pendingVideoThumbnails.contains(item.id), !failedVideoThumbnails.contains(item.id) else { return }
         let name = item.thumbnailName ?? "\(item.id.uuidString)-thumbnail.png"
-        guard !FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path) else { return }
+        let destination = storageFolder(for: item).appendingPathComponent(name)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
         pendingVideoThumbnails.insert(item.id)
         Task { [weak self] in
             let isScoped = url.startAccessingSecurityScopedResource()
@@ -317,16 +489,21 @@ final class ClipboardStore: ObservableObject {
             )
             guard let self else { return }
             pendingVideoThumbnails.remove(item.id)
-            guard let frame = thumbnails?.first,
-                  let data = NSBitmapImageRep(cgImage: frame.image).representation(using: .png, properties: [:]),
-                  let index = entries.firstIndex(where: { $0.id == item.id }) else {
+            guard let current = (item.isNotebookEntry ? notebookEntries : entries).first(where: { $0.id == item.id }),
+                  let frame = thumbnails?.first,
+                  let data = NSBitmapImageRep(cgImage: frame.image).representation(using: .png, properties: [:]) else {
                 failedVideoThumbnails.insert(item.id)
                 return
             }
             do {
-                try data.write(to: folder.appendingPathComponent(name), options: .atomic)
-                entries[index].thumbnailName = name
-                save()
+                try data.write(to: storageFolder(for: current).appendingPathComponent(name), options: .atomic)
+                if item.isNotebookEntry, let index = notebookEntries.firstIndex(where: { $0.id == item.id }) {
+                    notebookEntries[index].thumbnailName = name
+                    persistNotebook()
+                } else if let index = entries.firstIndex(where: { $0.id == item.id }) {
+                    entries[index].thumbnailName = name
+                    save()
+                }
             } catch {
                 failedVideoThumbnails.insert(item.id)
             }
@@ -343,6 +520,7 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func removeFiles(for item: ClipboardEntry) {
+        guard !archivingHistoryIDs.contains(item.id) else { return }
         let fallbackVideoThumbnail = item.kind == .video ? "\(item.id.uuidString)-thumbnail.png" : nil
         for name in [item.payloadName, item.thumbnailName, fallbackVideoThumbnail].compactMap({ $0 }) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))

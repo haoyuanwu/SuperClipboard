@@ -19,7 +19,7 @@ def run(*args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--version', default='1.0.0')
+    parser.add_argument('--version', default='1.1.0')
     parser.add_argument('--arch', choices=['arm64', 'x86_64'], required=True)
     parser.add_argument('--derived-data', type=Path)
     parser.add_argument('--packages', type=Path, default=Path('/tmp/SuperClipboardSourcePackages'))
@@ -33,7 +33,7 @@ def main():
             '-destination', 'generic/platform=macOS', '-derivedDataPath', derived,
             '-clonedSourcePackagesDirPath', args.packages,
             f'ARCHS={args.arch}', 'ONLY_ACTIVE_ARCH=NO', 'CODE_SIGNING_ALLOWED=NO',
-            f'MARKETING_VERSION={args.version}', 'CURRENT_PROJECT_VERSION=1', 'build')
+            f'MARKETING_VERSION={args.version}', 'build')
     source = derived / 'Build/Products/Release/SuperClipboard.app'
     if not source.is_dir():
         raise SystemExit(f'Missing build product: {source}')
@@ -72,7 +72,7 @@ def main():
     run('hdiutil', 'verify', dmg)
     digest = hashlib.sha256(dmg.read_bytes()).hexdigest()
     dmg.with_suffix('.dmg.sha256').write_text(f'{digest}  {dmg.name}\n')
-    manifest = {'version': args.version, 'architecture': architectures, 'minimumMacOS': metadata.get('LSMinimumSystemVersion'),
+    manifest = {'version': args.version, 'buildNumber': metadata.get('CFBundleVersion'), 'architecture': architectures, 'minimumMacOS': metadata.get('LSMinimumSystemVersion'),
                 'signature': 'ad-hoc', 'notarized': False, 'sha256': digest, 'filename': dmg.name}
     dmg.with_suffix('.manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print(f'Packaged and verified: {dmg}')

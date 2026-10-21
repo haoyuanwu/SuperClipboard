@@ -49,3 +49,11 @@ The native system font is retained intentionally for compact macOS interface leg
 ## Scope of evidence
 
 Contrast results apply to app-owned colors. User-provided rich-text colors and backgrounds are preserved, so their contrast depends on the copied source. Screenshot review is qualitative; it is not a VoiceOver or full keyboard-navigation audit.
+
+## Notebook addition
+
+- The book icon toggles between clipboard history and an independent saved list in both surfaces. The active icon uses the existing toolbar accent and control fill; no new palette was introduced.
+- Main category targets are 24 × 28 pt within their capsule, keeping the new entry on the same toolbar row at the existing 420–460 pt window width. Search, notebook and utility targets remain 32 pt.
+- Empty notebook copy explains the history context-menu entry. Settings groups the directory, migration action and persistence explanation together in the scrollable form.
+- Isolated fixture UI checked: main toolbar, empty and populated notebook, right-click save, and settings directory layout. Popover controls and copy actions were inspected in the accessibility tree.
+- `Scripts/test_notebook.sh` exercises source-independent storage, rich text, same-name files, source removal, cleanup, copying, restart, migration and failure protection using temporary directories and a private pasteboard.
