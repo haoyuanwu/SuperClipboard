@@ -1,0 +1,36 @@
+{
+  "elements": [
+    {
+      "name": "body",
+      "fontSize": 14,
+      "color": "#1A1F26",
+      "path": "HistoryCard/content"
+    },
+    {
+      "name": "caption",
+      "fontSize": 12,
+      "color": "#1F242B",
+      "path": "HistoryCard/metadata"
+    },
+    {
+      "name": "toolbar",
+      "color": "#1F5CE0",
+      "path": "ContentView/header"
+    },
+    {
+      "name": "focus",
+      "color": "#0D47C2",
+      "path": "ClipboardUI/InteractiveSurface"
+    }
+  ],
+  "spacing": {
+    "pageInset": 16,
+    "cardPadding": 16,
+    "cardGap": 12
+  },
+  "radius": {
+    "card": 16,
+    "content": 12,
+    "control": 10
+  }
+}

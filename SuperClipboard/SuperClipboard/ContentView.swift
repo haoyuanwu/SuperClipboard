@@ -48,7 +48,9 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: ClipboardStore
+    @EnvironmentObject private var launchAtLogin: LaunchAtLoginManager
     @AppStorage("appearanceMode") private var appearanceMode: AppAppearanceMode = .light
     @State private var section: LibrarySection = .all
     @State private var selectedItem: ClipboardEntry?
@@ -69,7 +71,7 @@ struct ContentView: View {
             header
                 .zIndex(1)
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: ClipboardLayout.cardGap) {
                     if visibleItems.isEmpty {
                         ContentUnavailableView(
                             search.isEmpty ? "暂无剪贴板记录" : "没有匹配的记录",
@@ -78,12 +80,12 @@ struct ContentView: View {
                         )
                         .frame(maxWidth: .infinity, minHeight: 300)
                     } else {
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(spacing: ClipboardLayout.cardGap) {
                             ForEach(visibleItems) { item in
                                 Button { selectedItem = item } label: {
                                     HistoryCard(item: item)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(HistoryCardButtonStyle())
                                 .contextMenu { EntryContextMenu(item: item) }
                             }
                         }
@@ -91,8 +93,7 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: 440)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
+                .padding(ClipboardLayout.pageInset)
             }
         }
         .background(ClipboardTheme.pageBackground)
@@ -129,7 +130,11 @@ struct ContentView: View {
             }
             .foregroundStyle(ClipboardTheme.primary)
             .background(ClipboardTheme.pageBackground)
-            .frame(width: 390, height: 360)
+            .frame(width: 390, height: 440)
+            .onAppear { launchAtLogin.refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                launchAtLogin.refresh()
+            }
             .onExitCommand { activePanel = nil }
         }
     }
@@ -155,16 +160,10 @@ struct ContentView: View {
                 .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 8))
                 .transition(.opacity.combined(with: .move(edge: .leading)))
             } else {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) { isSearchExpanded = true }
+                ToolbarIconButton(symbol: "magnifyingglass", title: "展开搜索") {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { isSearchExpanded = true }
                     isSearchFocused = true
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(ClipboardTheme.toolbarAccent)
-                        .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
-                .help("展开搜索")
             }
             if !isSearchExpanded {
                 Spacer(minLength: 4)
@@ -181,33 +180,24 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                         .foregroundStyle(ClipboardTheme.toolbarAccent)
-                        .frame(width: 28, height: 28)
+                        .frame(width: ClipboardLayout.controlSize, height: ClipboardLayout.controlSize)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .frame(width: 28, height: 28)
+                .frame(width: ClipboardLayout.controlSize, height: ClipboardLayout.controlSize)
+                .accessibilityLabel("排序：\(store.sortOrder.rawValue)")
                 .help("排序：\(store.sortOrder.rawValue)")
                 categoryBar
                 Spacer(minLength: 4)
             }
-            Button { activePanel = .settings } label: {
-                Image(systemName: "gearshape")
-                    .foregroundStyle(ClipboardTheme.toolbarAccent)
-                    .frame(width: 28, height: 28)
+            HStack(spacing: 0) {
+                ToolbarIconButton(symbol: "gearshape", title: "设置") { activePanel = .settings }
+                ToolbarIconButton(symbol: "info.circle", title: "关于") { activePanel = .about }
             }
-            .buttonStyle(.plain)
-            .help("设置")
-            Button { activePanel = .about } label: {
-                Image(systemName: "info.circle")
-                    .foregroundStyle(ClipboardTheme.toolbarAccent)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .help("关于")
         }
         .font(.system(size: 13, weight: .medium))
         .foregroundStyle(ClipboardTheme.primary)
-        .padding(.leading, 84)
+        .padding(.leading, 78)
         .padding(.trailing, 12)
         .frame(height: 44)
         .background(WindowDragArea())
@@ -222,29 +212,51 @@ struct ContentView: View {
                 }
             }
         }
+        .padding(2)
+        .background(ClipboardTheme.controlFill, in: Capsule())
     }
 
     private func closeSearch() {
         search = ""
         isSearchFocused = false
-        withAnimation(.easeInOut(duration: 0.18)) { isSearchExpanded = false }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { isSearchExpanded = false }
     }
 
     private var settingsView: some View {
         Form {
-            Picker("外观", selection: $appearanceMode) {
-                ForEach(AppAppearanceMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+            Section("通用") {
+                Toggle("开机启动", isOn: Binding(
+                    get: { launchAtLogin.isEnabled },
+                    set: { launchAtLogin.setEnabled($0) }
+                ))
+                if launchAtLogin.needsApproval {
+                    Button("在系统设置中允许开机启动") { launchAtLogin.openLoginItemsSettings() }
+                }
+                if let message = launchAtLogin.errorMessage {
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundStyle(ClipboardTheme.dangerText)
                 }
             }
-            Picker("最大记录数", selection: $store.maxEntries) {
-                Text("100 条").tag(100)
-                Text("500 条").tag(500)
-                Text("1000 条").tag(1000)
+            Section("外观") {
+                Picker("显示模式", selection: $appearanceMode) {
+                    ForEach(AppAppearanceMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
             }
-            Text("重复内容合并计数，置顶记录不会自动清理。")
-                .font(.caption).foregroundStyle(ClipboardTheme.secondary)
-            Button("清空未置顶记录", role: .destructive) { store.clearUnpinned() }
+            Section("历史记录") {
+                Picker("最多保留", selection: $store.maxEntries) {
+                    Text("100 条").tag(100)
+                    Text("500 条").tag(500)
+                    Text("1000 条").tag(1000)
+                }
+                Text("重复内容合并计数，置顶记录不会自动清理。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ClipboardTheme.secondary)
+                Button("清空未置顶记录", role: .destructive) { store.clearUnpinned() }
+                    .foregroundStyle(ClipboardTheme.dangerText)
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("设置")
@@ -258,7 +270,8 @@ struct ContentView: View {
                 .frame(width: 80, height: 80)
                 .accessibilityLabel("SuperClipboard")
             Text("SuperClipboard").font(.largeTitle.bold())
-            Text("macOS 剪贴板历史管理 · 版本 1.0").foregroundStyle(ClipboardTheme.secondary)
+            Text("macOS 剪贴板历史管理 · 版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0")")
+                .foregroundStyle(ClipboardTheme.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("关于")
@@ -266,6 +279,8 @@ struct ContentView: View {
 }
 
 private struct CategoryButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var isFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     let section: LibrarySection
     let isSelected: Bool
@@ -289,17 +304,25 @@ private struct CategoryButton: View {
             Image(systemName: section.symbol)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(colorScheme == .light && isSelected ? .white : iconTint.opacity(colorScheme == .light || isSelected || isHovered ? 1 : 0.82))
-                .brightness(colorScheme == .dark && isHovered ? 0.18 : 0)
-                .shadow(color: iconTint.opacity(isHovered ? 0.3 : 0), radius: 5)
+                .brightness(colorScheme == .dark && isHovered ? 0.08 : 0)
+                .shadow(color: iconTint.opacity(isHovered ? 0.14 : 0), radius: 3)
                 .frame(width: 28, height: 28)
                 .background(buttonFill, in: Capsule())
                 .overlay {
                     Capsule().strokeBorder(iconTint.opacity(isHovered ? 0.4 : 0), lineWidth: 1)
                 }
-                .scaleEffect(isHovered ? 1.08 : 1)
+                .overlay {
+                    if isFocused {
+                        Capsule().stroke(ClipboardTheme.focusRing, lineWidth: 2)
+                            .padding(-2)
+                    }
+                }
+                .scaleEffect(!reduceMotion && isHovered ? 1.04 : 1)
         }
         .buttonStyle(.plain)
+        .focused($isFocused)
         .accessibilityLabel(section.rawValue)
+        .accessibilityValue(isSelected ? "已选择" : "")
         .onHover { hovering in
             isHovered = hovering
             if !hovering { showsName = false }
@@ -330,9 +353,9 @@ private struct CategoryButton: View {
                     .allowsHitTesting(false)
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: isHovered)
-        .animation(.easeInOut(duration: 0.18), value: isSelected)
-        .animation(.easeInOut(duration: 0.18), value: showsName)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isHovered)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isSelected)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: showsName)
     }
 }
 
@@ -356,23 +379,26 @@ private struct HistoryCard: View {
                 ClipboardTimestamp(date: item.lastCopiedAt)
                     .layoutPriority(1)
                 Text("·")
-                Text("\(item.copyCount) 次")
+                Label("\(item.copyCount)", systemImage: "doc.on.doc")
+                    .font(.system(size: 12, weight: .medium))
+                    .monospacedDigit()
                     .fixedSize()
+                    .accessibilityLabel("复制 \(item.copyCount) 次")
                 if item.isPinned { Image(systemName: "pin.fill") }
                 Spacer(minLength: 8)
                 SourceAppBadge(item: item)
                     .frame(maxWidth: 120, alignment: .trailing)
                     .layoutPriority(-1)
             }
-            .font(.caption)
+            .font(.system(size: 12))
             .lineLimit(1)
             .foregroundStyle(ClipboardTheme.cardSecondary)
-            .padding(.top, 10)
+            .padding(.top, 12)
         }
-        .padding(14)
+        .padding(ClipboardLayout.cardPadding)
         .foregroundStyle(ClipboardTheme.cardPrimary)
         .background {
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: ClipboardLayout.cardRadius)
                 .fill(
                     LinearGradient(
                         colors: ClipboardCardPalette.gradient(tint: NSColor(accent), isDark: colorScheme == .dark).map { Color(nsColor: $0) },
@@ -382,7 +408,7 @@ private struct HistoryCard: View {
                 )
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 14).strokeBorder(accent.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ClipboardLayout.cardRadius).strokeBorder(accent.opacity(0.18), lineWidth: 1)
         }
     }
 
@@ -395,12 +421,13 @@ private struct HistoryCard: View {
                     .frame(maxHeight: 126, alignment: .top)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(nsColor: ClipboardTextAppearance.canvas(for: rich, isDark: colorScheme == .dark)), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color(nsColor: ClipboardTextAppearance.canvas(for: rich, isDark: colorScheme == .dark)), in: RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
                     .frame(maxHeight: 150, alignment: .top)
                     .clipped()
             } else {
                 Text(item.plainText ?? "")
-                    .font(.body)
+                    .font(.system(size: 14))
+                    .lineSpacing(3)
                     .foregroundStyle(ClipboardTheme.cardPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, maxHeight: 150, alignment: .topLeading)
@@ -413,7 +440,7 @@ private struct HistoryCard: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
                 } else {
                     Image(systemName: "photo")
                         .font(.largeTitle)
@@ -421,7 +448,7 @@ private struct HistoryCard: View {
                         .foregroundStyle(ClipboardTheme.cardSecondary)
                 }
                 Text(item.title)
-                    .font(.caption)
+                    .font(.system(size: 12))
                     .foregroundStyle(ClipboardTheme.cardSecondary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -432,13 +459,13 @@ private struct HistoryCard: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
             } else {
-                Text(item.title).font(.body)
+                Text(item.title).font(.system(size: 14))
             }
         case .file:
             Label(item.title, systemImage: "doc")
-                .font(.body)
+                .font(.system(size: 14))
                 .lineLimit(3)
         }
     }
@@ -535,6 +562,7 @@ struct MenuPopoverView: View {
                     TextField(text: $search, prompt: Text("搜索记录").foregroundColor(ClipboardTheme.secondary.opacity(0.8))) { Text("搜索记录") }
                         .textFieldStyle(.plain)
                         .accessibilityLabel("搜索记录")
+                        .onExitCommand { search = "" }
                     if !search.isEmpty {
                         Button { search = "" } label: {
                             Image(systemName: "xmark.circle.fill")
@@ -546,27 +574,19 @@ struct MenuPopoverView: View {
                 }
                 .font(.system(size: 13))
                 .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 9))
+                .frame(height: 36)
+                .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
 
-                Button {
+                ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口") {
                     AppWindowCoordinator.showMainWindow { openWindow(id: "main") }
-                } label: {
-                    Image(systemName: "arrow.up.forward.square")
-                        .font(.system(size: 15))
-                        .foregroundStyle(ClipboardTheme.secondary)
-                        .frame(width: 30, height: 32)
                 }
-                .buttonStyle(.plain)
-                .help("打开主窗口")
-                .accessibilityLabel("打开主窗口")
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ClipboardLayout.pageInset)
             .padding(.vertical, 10)
             .background(ClipboardTheme.headerBackground)
 
             ScrollView {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: ClipboardLayout.cardGap) {
                     ForEach(visibleItems) { item in
                         Button {
                             store.copy(item)
@@ -575,12 +595,12 @@ struct MenuPopoverView: View {
                         } label: {
                             PopoverHistoryCard(item: item, isCopied: copiedItemID == item.id)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(HistoryCardButtonStyle())
                         .help("单击复制")
                         .contextMenu { EntryContextMenu(item: item) }
                     }
                 }
-                .padding(12)
+                .padding(ClipboardLayout.pageInset)
             }
             .overlay {
                 if visibleItems.isEmpty {
@@ -624,32 +644,24 @@ struct MenuPopoverView: View {
 private struct PopoverHistoryCard: View {
     let item: ClipboardEntry
     let isCopied: Bool
-    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HistoryCard(item: item)
-            .overlay {
-                RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(ClipboardTheme.primary.opacity(isHovered ? 0.23 : 0), lineWidth: 1)
-            }
             .overlay(alignment: .topTrailing) {
                 if isCopied {
                     Label("已复制", systemImage: "checkmark")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(ClipboardTheme.primary)
+                        .foregroundStyle(ClipboardTheme.successText)
                         .padding(.horizontal, 9)
                         .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(ClipboardTheme.successFill, in: Capsule())
                         .padding(9)
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                         .allowsHitTesting(false)
                 }
             }
-            .brightness(isHovered ? 0.025 : 0)
-            .contentShape(RoundedRectangle(cornerRadius: 14))
-            .onHover { isHovered = $0 }
-            .animation(.easeInOut(duration: 0.18), value: isHovered)
-            .animation(.easeInOut(duration: 0.18), value: isCopied)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isCopied)
     }
 }
 
@@ -667,8 +679,12 @@ private struct RichTextPreview: NSViewRepresentable {
         return view
     }
     func updateNSView(_ view: NSTextField, context: Context) {
-        view.attributedStringValue = ClipboardTextAppearance.preview(for: attributedText, isDark: colorScheme == .dark)
-        view.lineBreakMode = singleLine ? .byTruncatingTail : .byWordWrapping
+        let preview = ClipboardTextAppearance.preview(for: attributedText, isDark: colorScheme == .dark)
+        if !view.attributedStringValue.isEqual(to: preview) {
+            view.attributedStringValue = preview
+        }
+        let lineBreakMode: NSLineBreakMode = singleLine ? .byTruncatingTail : .byWordWrapping
+        if view.lineBreakMode != lineBreakMode { view.lineBreakMode = lineBreakMode }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
@@ -704,6 +720,10 @@ private struct EntryDetail: View {
 
     private var accent: Color { AppIconPalette.color(for: item.sourceBundleID) }
 
+    private var currentItem: ClipboardEntry {
+        store.entries.first { $0.id == item.id } ?? item
+    }
+
     var body: some View {
         ZStack {
             ClipboardTheme.pageBackground
@@ -729,13 +749,7 @@ private struct EntryDetail: View {
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                     Spacer(minLength: 8)
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(ClipboardTheme.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("关闭")
+                    ToolbarIconButton(symbol: "xmark", title: "关闭") { dismiss() }
                 }
                 .padding(16)
                 ScrollView {
@@ -745,29 +759,40 @@ private struct EntryDetail: View {
                         .padding(.bottom, 8)
                 }
                 Spacer(minLength: 0)
-                HStack(spacing: 10) {
-                    DetailSourceView(item: item)
-                    Spacer(minLength: 0)
-                    Label {
-                        ClipboardTimestamp(date: item.lastCopiedAt)
-                    } icon: {
-                        Image(systemName: "clock")
+                HStack(alignment: .bottom, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        DetailSourceView(item: currentItem)
+                            .foregroundStyle(ClipboardTheme.primary)
+                        HStack(spacing: 12) {
+                            Label {
+                                ClipboardTimestamp(date: currentItem.lastCopiedAt)
+                            } icon: {
+                                Image(systemName: "clock")
+                            }
+                            Label("\(currentItem.copyCount)", systemImage: "doc.on.doc")
+                                .monospacedDigit()
+                                .accessibilityLabel("复制 \(currentItem.copyCount) 次")
+                        }
+                        .font(.system(size: 12))
+                        .foregroundStyle(ClipboardTheme.secondary)
                     }
-                    Label("\(item.copyCount)", systemImage: "arrow.counterclockwise")
+                    Spacer(minLength: 0)
                     Button { store.copy(item) } label: {
                         Image(systemName: "doc.on.doc.fill")
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 38, height: 38)
-                            .background(accent.opacity(0.32), in: RoundedRectangle(cornerRadius: 9))
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 40, height: 40)
+                            .foregroundStyle(ClipboardTheme.actionForeground)
+                            .background(ClipboardTheme.actionFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(ClipboardTheme.primary)
+                    .buttonStyle(ClipboardControlStyle())
+                    .accessibilityLabel("再次复制")
                     .help("再次复制")
                 }
-                .font(.subheadline)
-                .foregroundStyle(ClipboardTheme.secondary)
                 .lineLimit(1)
-                .padding(14)
+                .padding(ClipboardLayout.pageInset)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(ClipboardTheme.border).frame(height: 1)
+                }
             }
         }
         .foregroundStyle(ClipboardTheme.primary)
@@ -937,5 +962,7 @@ private struct VideoSurface: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: AVPlayerView, context: Context) { view.player = player }
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
+    }
 }

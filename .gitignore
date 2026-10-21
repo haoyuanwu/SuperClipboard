@@ -1,0 +1,10 @@
+.DS_Store
+**/xcuserdata/
+**/*.xcuserstate
+**/dist/
+**/.build/
+**/DerivedData/
+SuperClipboard/skills/
+*.dSYM/
+__pycache__/
+*.pyc

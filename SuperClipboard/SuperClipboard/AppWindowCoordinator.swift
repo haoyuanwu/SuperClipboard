@@ -13,14 +13,24 @@ enum AppWindowCoordinator {
     private static var needsMainWindowFocus = false
 
     static func register(_ window: NSWindow, role: AppWindowRole, appearance: AppAppearanceMode) {
-        window.appearance = appearance.windowAppearance
         switch role {
         case .main:
             mainWindow = window
-            window.tabbingMode = .disallowed
-            focusMainWindowIfNeeded()
         case .popover:
             popoverWindow = window
+        }
+        // Registration can happen during SwiftUI layout. Defer native window
+        // changes so they cannot trigger a nested layout pass.
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
+            let desiredAppearance = appearance.windowAppearance
+            if window.appearance?.name != desiredAppearance?.name {
+                window.appearance = desiredAppearance
+            }
+            if case .main = role {
+                if window.tabbingMode != .disallowed { window.tabbingMode = .disallowed }
+                focusMainWindowIfNeeded()
+            }
         }
     }
 
@@ -68,9 +78,7 @@ struct AppWindowObserver: NSViewRepresentable {
     func updateNSView(_ view: WindowProbe, context: Context) {
         view.onVisibilityChange = onVisibilityChange
         view.appearanceMode = appearanceMode
-        if let window = view.window {
-            AppWindowCoordinator.register(window, role: role, appearance: appearanceMode)
-        }
+        view.registerWindowIfNeeded()
     }
 
     final class WindowProbe: NSView {
@@ -80,6 +88,8 @@ struct AppWindowObserver: NSViewRepresentable {
         private var visibilityObservation: NSKeyValueObservation?
         private var occlusionObservation: AnyCancellable?
         private var lastVisibility: Bool?
+        private weak var registeredWindow: NSWindow?
+        private var registeredAppearance: AppAppearanceMode?
 
         init(role: AppWindowRole, appearanceMode: AppAppearanceMode, onVisibilityChange: ((Bool) -> Void)?) {
             self.role = role
@@ -96,7 +106,7 @@ struct AppWindowObserver: NSViewRepresentable {
             occlusionObservation = nil
             lastVisibility = nil
             guard let window else { return }
-            AppWindowCoordinator.register(window, role: role, appearance: appearanceMode)
+            registerWindowIfNeeded()
             guard onVisibilityChange != nil else { return }
             visibilityObservation = window.observe(\.isVisible, options: [.initial, .old, .new]) { [weak self] window, change in
                 guard change.oldValue != change.newValue else { return }
@@ -107,6 +117,14 @@ struct AppWindowObserver: NSViewRepresentable {
                 .sink { [weak self] _ in
                     DispatchQueue.main.async { self?.reportVisibility() }
                 }
+        }
+
+        func registerWindowIfNeeded() {
+            guard let window,
+                  registeredWindow !== window || registeredAppearance != appearanceMode else { return }
+            registeredWindow = window
+            registeredAppearance = appearanceMode
+            AppWindowCoordinator.register(window, role: role, appearance: appearanceMode)
         }
 
         private func reportVisibility() {

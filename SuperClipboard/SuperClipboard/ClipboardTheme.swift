@@ -40,6 +40,13 @@ enum ClipboardTheme {
     static let cardSecondary = adaptive(light: (0.12, 0.14, 0.17), dark: (0.94, 0.95, 0.97))
     static let controlFill = adaptive(light: (0, 0, 0), dark: (1, 1, 1), alpha: 0.065)
     static let border = adaptive(light: (0, 0, 0), dark: (1, 1, 1), alpha: 0.12)
+    static let focusRing = adaptive(light: (0.05, 0.28, 0.76), dark: (0.45, 0.72, 1))
+    static let hoverBorder = adaptive(light: (0.08, 0.27, 0.61), dark: (0.65, 0.78, 0.98))
+    static let actionFill = adaptive(light: (0.12, 0.36, 0.88), dark: (0.45, 0.72, 1))
+    static let actionForeground = adaptive(light: (1, 1, 1), dark: (0.05, 0.09, 0.16))
+    static let successFill = adaptive(light: (0.88, 0.97, 0.92), dark: (0.12, 0.27, 0.21))
+    static let successText = adaptive(light: (0.06, 0.36, 0.22), dark: (0.59, 0.94, 0.73))
+    static let dangerText = adaptive(light: (0.68, 0.12, 0.13), dark: (1, 0.58, 0.58))
 
     private static func adaptive(light: (CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat), alpha: CGFloat = 1) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

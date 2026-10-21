@@ -10,12 +10,15 @@ import SwiftUI
 @main
 struct SuperClipboardApp: App {
     @StateObject private var store = ClipboardStore()
+    @StateObject private var launchAtLogin = LaunchAtLoginManager()
     @AppStorage("appearanceMode") private var appearanceMode: AppAppearanceMode = .light
 
     var body: some Scene {
         Window("SuperClipboard", id: "main") {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(launchAtLogin)
+                .task { launchAtLogin.configureDefaultIfNeeded() }
                 .preferredColorScheme(appearanceMode.colorScheme)
                 .background(AppWindowObserver(role: .main).allowsHitTesting(false))
         }
@@ -26,6 +29,8 @@ struct SuperClipboardApp: App {
         MenuBarExtra {
             MenuPopoverView()
                 .environmentObject(store)
+                .environmentObject(launchAtLogin)
+                .task { launchAtLogin.configureDefaultIfNeeded() }
                 .preferredColorScheme(appearanceMode.colorScheme)
         } label: {
             Image("MenuBarLogo")

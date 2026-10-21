@@ -1,0 +1,1038 @@
+{
+  "measuredPairs": 172,
+  "passed": true,
+  "measurements": [
+    {
+      "minimum": 4.5,
+      "name": "light/body",
+      "passed": true,
+      "ratio": 16.63009746465071
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/caption",
+      "passed": true,
+      "ratio": 6.504259483738885
+    },
+    {
+      "minimum": 3,
+      "name": "light/toolbar",
+      "passed": true,
+      "ratio": 5.473113135968897
+    },
+    {
+      "minimum": 3,
+      "name": "light/focus",
+      "passed": true,
+      "ratio": 6.412456425418014
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/copy-action",
+      "passed": true,
+      "ratio": 5.7350821659912645
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/copied-feedback",
+      "passed": true,
+      "ratio": 7.1960108531466105
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/destructive-action",
+      "passed": true,
+      "ratio": 7.000110150671067
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/全部/default",
+      "passed": true,
+      "ratio": 4.209262953915605
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/全部/hover",
+      "passed": true,
+      "ratio": 3.7073828958870947
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/全部/selected",
+      "passed": true,
+      "ratio": 5.757740307601651
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/文字/default",
+      "passed": true,
+      "ratio": 4.164849425773344
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/文字/hover",
+      "passed": true,
+      "ratio": 3.6781312049695924
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/文字/selected",
+      "passed": true,
+      "ratio": 5.683101062288663
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/图片/default",
+      "passed": true,
+      "ratio": 4.6145059754228885
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/图片/hover",
+      "passed": true,
+      "ratio": 4.018985689188445
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/图片/selected",
+      "passed": true,
+      "ratio": 6.3786438622371815
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/文件/default",
+      "passed": true,
+      "ratio": 3.53794915220849
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/文件/hover",
+      "passed": true,
+      "ratio": 3.1652893863964344
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/文件/selected",
+      "passed": true,
+      "ratio": 4.769589923029258
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/视频/default",
+      "passed": true,
+      "ratio": 4.970266994186957
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/视频/hover",
+      "passed": true,
+      "ratio": 4.340597254014128
+    },
+    {
+      "minimum": 3,
+      "name": "light/category/视频/selected",
+      "passed": true,
+      "ratio": 6.84908723639109
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-0-0/text",
+      "passed": true,
+      "ratio": 8.165579652470065
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-0-0/metadata",
+      "passed": true,
+      "ratio": 6.0884448539782845
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-0-0/hover",
+      "passed": true,
+      "ratio": 3.467088161427556
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-0-0/focus",
+      "passed": true,
+      "ratio": 3.0181932633313413
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-0-1/text",
+      "passed": true,
+      "ratio": 11.603859100183072
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-0-1/metadata",
+      "passed": true,
+      "ratio": 8.652105451378148
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-0-1/hover",
+      "passed": true,
+      "ratio": 4.926974473998083
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-0-1/focus",
+      "passed": true,
+      "ratio": 4.289063465840342
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-1-0/text",
+      "passed": true,
+      "ratio": 20.47697976841425
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-1-0/metadata",
+      "passed": true,
+      "ratio": 15.268109234389254
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-1-0/hover",
+      "passed": true,
+      "ratio": 8.694483081232901
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-1-0/focus",
+      "passed": true,
+      "ratio": 7.568780787253074
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-1-1/text",
+      "passed": true,
+      "ratio": 18.99231997191654
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-1-1/metadata",
+      "passed": true,
+      "ratio": 14.16111258716892
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-1-1/hover",
+      "passed": true,
+      "ratio": 8.064099615115152
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-1-1/focus",
+      "passed": true,
+      "ratio": 7.020015067384946
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-2-0/text",
+      "passed": true,
+      "ratio": 10.994775198877681
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-2-0/metadata",
+      "passed": true,
+      "ratio": 8.197958421727648
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-2-0/hover",
+      "passed": true,
+      "ratio": 4.668358714504115
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-2-0/focus",
+      "passed": true,
+      "ratio": 4.063931508776227
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-2-1/text",
+      "passed": true,
+      "ratio": 13.306000928827647
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-2-1/metadata",
+      "passed": true,
+      "ratio": 9.921261726672988
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-2-1/hover",
+      "passed": true,
+      "ratio": 5.64970035927912
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-2-1/focus",
+      "passed": true,
+      "ratio": 4.918215739052875
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-3-0/text",
+      "passed": true,
+      "ratio": 16.77748711141283
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-3-0/metadata",
+      "passed": true,
+      "ratio": 12.509682032832629
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-3-0/hover",
+      "passed": true,
+      "ratio": 7.123686182509636
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-3-0/focus",
+      "passed": true,
+      "ratio": 6.201359943868389
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-3-1/text",
+      "passed": true,
+      "ratio": 16.79451798684533
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-3-1/metadata",
+      "passed": true,
+      "ratio": 12.522380647052179
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-3-1/hover",
+      "passed": true,
+      "ratio": 7.130917456847019
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-3-1/focus",
+      "passed": true,
+      "ratio": 6.207654962187566
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-4-0/text",
+      "passed": true,
+      "ratio": 9.345095119608931
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-4-0/metadata",
+      "passed": true,
+      "ratio": 6.9679188388921505
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-4-0/hover",
+      "passed": true,
+      "ratio": 3.9679079790507665
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-4-0/focus",
+      "passed": true,
+      "ratio": 3.454170351110622
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-4-1/text",
+      "passed": true,
+      "ratio": 12.311848681219617
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-4-1/metadata",
+      "passed": true,
+      "ratio": 9.179998841044398
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-4-1/hover",
+      "passed": true,
+      "ratio": 5.227585379689674
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-4-1/focus",
+      "passed": true,
+      "ratio": 4.550753324360905
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-5-0/text",
+      "passed": true,
+      "ratio": 14.009809603094299
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-5-0/metadata",
+      "passed": true,
+      "ratio": 10.446037735652073
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-5-0/hover",
+      "passed": true,
+      "ratio": 5.948536060639499
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-5-0/focus",
+      "passed": true,
+      "ratio": 5.178360234576005
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-5-1/text",
+      "passed": true,
+      "ratio": 15.237199748669473
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-5-1/metadata",
+      "passed": true,
+      "ratio": 11.361208186948854
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-5-1/hover",
+      "passed": true,
+      "ratio": 6.469683367296322
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-5-1/focus",
+      "passed": true,
+      "ratio": 5.63203294692701
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-6-0/text",
+      "passed": true,
+      "ratio": 9.645823631619452
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-6-0/metadata",
+      "passed": true,
+      "ratio": 7.192148965756584
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-6-0/hover",
+      "passed": true,
+      "ratio": 4.095596680670376
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-6-0/focus",
+      "passed": true,
+      "ratio": 3.5653267916417293
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-6-1/text",
+      "passed": true,
+      "ratio": 12.551834652034858
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-6-1/metadata",
+      "passed": true,
+      "ratio": 9.358937925741838
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-6-1/hover",
+      "passed": true,
+      "ratio": 5.329482924473348
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-6-1/focus",
+      "passed": true,
+      "ratio": 4.63945787091315
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-7-0/text",
+      "passed": true,
+      "ratio": 12.73808037902086
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-7-0/metadata",
+      "passed": true,
+      "ratio": 9.497807042975952
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-7-0/hover",
+      "passed": true,
+      "ratio": 5.408562473339704
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-7-0/focus",
+      "passed": true,
+      "ratio": 4.70829873983338
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-7-1/text",
+      "passed": true,
+      "ratio": 14.530424010474416
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/card-7-1/metadata",
+      "passed": true,
+      "ratio": 10.834219866550962
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-7-1/hover",
+      "passed": true,
+      "ratio": 6.169587856754208
+    },
+    {
+      "minimum": 3,
+      "name": "light/card-7-1/focus",
+      "passed": true,
+      "ratio": 5.370791753711648
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/body",
+      "passed": true,
+      "ratio": 14.195128254769587
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/caption",
+      "passed": true,
+      "ratio": 8.60079601123174
+    },
+    {
+      "minimum": 3,
+      "name": "dark/toolbar",
+      "passed": true,
+      "ratio": 9.062484218734125
+    },
+    {
+      "minimum": 3,
+      "name": "dark/focus",
+      "passed": true,
+      "ratio": 5.4107901687213795
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/copy-action",
+      "passed": true,
+      "ratio": 8.536020107485788
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/copied-feedback",
+      "passed": true,
+      "ratio": 7.891816567919259
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/destructive-action",
+      "passed": true,
+      "ratio": 7.492566948166084
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/全部/default",
+      "passed": true,
+      "ratio": 3.7846448694836208
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/全部/hover",
+      "passed": true,
+      "ratio": 3.8506421804063637
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/全部/selected",
+      "passed": true,
+      "ratio": 3.7390250364495534
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/文字/default",
+      "passed": true,
+      "ratio": 3.6542825020944556
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/文字/hover",
+      "passed": true,
+      "ratio": 3.7687151069088736
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/文字/selected",
+      "passed": true,
+      "ratio": 3.6302548878797536
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/图片/default",
+      "passed": true,
+      "ratio": 3.3628510956816204
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/图片/hover",
+      "passed": true,
+      "ratio": 3.571756713476164
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/图片/selected",
+      "passed": true,
+      "ratio": 3.3658219512061582
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/文件/default",
+      "passed": true,
+      "ratio": 3.7521594699038068
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/文件/hover",
+      "passed": true,
+      "ratio": 3.8392470338693894
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/文件/selected",
+      "passed": true,
+      "ratio": 3.719966981339837
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/视频/default",
+      "passed": true,
+      "ratio": 3.4893676863407457
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/视频/hover",
+      "passed": true,
+      "ratio": 3.6544379834165297
+    },
+    {
+      "minimum": 3,
+      "name": "dark/category/视频/selected",
+      "passed": true,
+      "ratio": 3.4771208281350194
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-0-0/text",
+      "passed": true,
+      "ratio": 11.476314315529146
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-0-0/metadata",
+      "passed": true,
+      "ratio": 10.972910793678313
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-0-0/hover",
+      "passed": true,
+      "ratio": 7.1050055395743765
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-0-0/focus",
+      "passed": true,
+      "ratio": 5.840839601952742
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-0-1/text",
+      "passed": true,
+      "ratio": 12.262986814837564
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-0-1/metadata",
+      "passed": true,
+      "ratio": 11.725076246925857
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-0-1/hover",
+      "passed": true,
+      "ratio": 7.592035810072804
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-0-1/focus",
+      "passed": true,
+      "ratio": 6.2412144750520495
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-1-0/text",
+      "passed": true,
+      "ratio": 6.056421867185781
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-1-0/metadata",
+      "passed": true,
+      "ratio": 5.790759563598452
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-1-0/hover",
+      "passed": true,
+      "ratio": 3.7495409879221584
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-1-0/focus",
+      "passed": true,
+      "ratio": 3.082399777089082
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-1-1/text",
+      "passed": true,
+      "ratio": 7.66576640299117
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-1-1/metadata",
+      "passed": true,
+      "ratio": 7.329510903285155
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-1-1/hover",
+      "passed": true,
+      "ratio": 4.745888903080652
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-1-1/focus",
+      "passed": true,
+      "ratio": 3.901471391849483
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-2-0/text",
+      "passed": true,
+      "ratio": 9.592342245099768
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-2-0/metadata",
+      "passed": true,
+      "ratio": 9.17157833639019
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-2-0/hover",
+      "passed": true,
+      "ratio": 5.938635254761647
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-2-0/focus",
+      "passed": true,
+      "ratio": 4.881997034958319
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-2-1/text",
+      "passed": true,
+      "ratio": 10.848633193026338
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-2-1/metadata",
+      "passed": true,
+      "ratio": 10.372762629839736
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-2-1/hover",
+      "passed": true,
+      "ratio": 6.71640709848479
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-2-1/focus",
+      "passed": true,
+      "ratio": 5.521382966580559
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-3-0/text",
+      "passed": true,
+      "ratio": 7.064731323545343
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-3-0/metadata",
+      "passed": true,
+      "ratio": 6.7548399654470135
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-3-0/hover",
+      "passed": true,
+      "ratio": 4.373787072167682
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-3-0/focus",
+      "passed": true,
+      "ratio": 3.5955761891152993
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-3-1/text",
+      "passed": true,
+      "ratio": 8.64951893996268
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-3-1/metadata",
+      "passed": true,
+      "ratio": 8.270111564303683
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-3-1/hover",
+      "passed": true,
+      "ratio": 5.3549317571348505
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-3-1/focus",
+      "passed": true,
+      "ratio": 4.4021496251643
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-4-0/text",
+      "passed": true,
+      "ratio": 10.482991873363217
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-4-0/metadata",
+      "passed": true,
+      "ratio": 10.023160007182636
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-4-0/hover",
+      "passed": true,
+      "ratio": 6.490037941081318
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-4-0/focus",
+      "passed": true,
+      "ratio": 5.335290790880146
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-4-1/text",
+      "passed": true,
+      "ratio": 11.500757744455223
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-4-1/metadata",
+      "passed": true,
+      "ratio": 10.996282022255986
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-4-1/hover",
+      "passed": true,
+      "ratio": 7.1201385076293695
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-4-1/focus",
+      "passed": true,
+      "ratio": 5.85328001999582
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-5-0/text",
+      "passed": true,
+      "ratio": 8.13241244050512
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-5-0/metadata",
+      "passed": true,
+      "ratio": 7.7756877158995765
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-5-0/hover",
+      "passed": true,
+      "ratio": 5.034790251579853
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-5-0/focus",
+      "passed": true,
+      "ratio": 4.138969649658409
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-5-1/text",
+      "passed": true,
+      "ratio": 9.597948259987318
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-5-1/metadata",
+      "passed": true,
+      "ratio": 9.17693844587986
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-5-1/hover",
+      "passed": true,
+      "ratio": 5.942105948029178
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-5-1/focus",
+      "passed": true,
+      "ratio": 4.884850201302851
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-6-0/text",
+      "passed": true,
+      "ratio": 10.383868664344524
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-6-0/metadata",
+      "passed": true,
+      "ratio": 9.928384794493185
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-6-0/hover",
+      "passed": true,
+      "ratio": 6.428670595275424
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-6-0/focus",
+      "passed": true,
+      "ratio": 5.2848422976800595
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-6-1/text",
+      "passed": true,
+      "ratio": 11.428790055162752
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-6-1/metadata",
+      "passed": true,
+      "ratio": 10.927471164264334
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-6-1/hover",
+      "passed": true,
+      "ratio": 7.075583189864897
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-6-1/focus",
+      "passed": true,
+      "ratio": 5.816652256227473
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-7-0/text",
+      "passed": true,
+      "ratio": 8.658182245446346
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-7-0/metadata",
+      "passed": true,
+      "ratio": 8.278394857670964
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-7-0/hover",
+      "passed": true,
+      "ratio": 5.3602952241644335
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-7-0/focus",
+      "passed": true,
+      "ratio": 4.4065587914141595
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-7-1/text",
+      "passed": true,
+      "ratio": 10.018967942970017
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/card-7-1/metadata",
+      "passed": true,
+      "ratio": 9.579490284103793
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-7-1/hover",
+      "passed": true,
+      "ratio": 6.2027599435209355
+    },
+    {
+      "minimum": 3,
+      "name": "dark/card-7-1/focus",
+      "passed": true,
+      "ratio": 5.099127047505939
+    }
+  ]
+}
