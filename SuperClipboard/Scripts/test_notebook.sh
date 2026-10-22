@@ -14,7 +14,7 @@ xcrun swiftc SuperClipboard/NotebookStorage.swift Scripts/Tests/NotebookStorageT
 "$notebook_test_dir/storage-tests"
 xcrun swiftc -swift-version 5 -default-isolation MainActor -I "$notebook_products" \
     -Xcc "-fmodule-map-file=$notebook_modulemap" \
-    SuperClipboard/ClipboardStore.swift SuperClipboard/NotebookStorage.swift SuperClipboard/ClipboardTextAppearance.swift \
+    SuperClipboard/ClipboardStore.swift SuperClipboard/ClipboardListSession.swift SuperClipboard/NotebookStorage.swift SuperClipboard/ClipboardTextAppearance.swift SuperClipboard/ClipboardPreviewCache.swift \
     Scripts/Tests/NotebookStoreTests.swift "$notebook_products/MediaToolSwift.o" "$notebook_products/ObjCExceptionCatcher.o" \
     -o "$notebook_test_dir/store-tests"
 "$notebook_test_dir/store-tests"

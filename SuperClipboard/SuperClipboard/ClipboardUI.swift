@@ -14,6 +14,7 @@ enum ClipboardLayout {
 struct ToolbarIconButton: View {
     let symbol: String
     let title: String
+    var size: CGFloat = ClipboardLayout.controlSize
     let action: () -> Void
 
     var body: some View {
@@ -21,7 +22,7 @@ struct ToolbarIconButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(ClipboardTheme.toolbarAccent)
-                .frame(width: ClipboardLayout.controlSize, height: ClipboardLayout.controlSize)
+                .frame(width: size, height: size)
         }
         .buttonStyle(ClipboardControlStyle())
         .accessibilityLabel(title)
@@ -52,6 +53,7 @@ private struct InteractiveSurface<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
     @State private var isCompressed = false
+    @State private var pressReleaseTask: Task<Void, Never>?
     let isPressed: Bool
     let radius: CGFloat
     var isCard = false
@@ -91,7 +93,15 @@ private struct InteractiveSurface<Content: View>: View {
                         .strokeBorder(isFocused ? ClipboardTheme.focusRing : .clear, lineWidth: 2)
                         .allowsHitTesting(false)
                 }
-                .shadow(color: .black.opacity(isElevated ? (colorScheme == .dark ? 0.22 : 0.10) : 0), radius: isCompressed ? 3 : 9, x: 0, y: isCompressed ? 1 : 5)
+                .background {
+                    if isCard {
+                        // Shadow just the rounded outline, not the text and image layers.
+                        RoundedRectangle(cornerRadius: radius)
+                            .fill(ClipboardTheme.pageBackground)
+                            .shadow(color: .black.opacity(isElevated ? (colorScheme == .dark ? 0.22 : 0.10) : 0),
+                                    radius: isCompressed ? 3 : 9, x: 0, y: isCompressed ? 1 : 5)
+                    }
+                }
                 .scaleEffect(scale)
                 .offset(y: reduceMotion || !isElevated || isCompressed ? 0 : -2)
                 .opacity(isEnabled ? 1 : 0.5)
@@ -102,16 +112,25 @@ private struct InteractiveSurface<Content: View>: View {
         // Keep the pointer target stationary while the visible card floats.
         .contentShape(RoundedRectangle(cornerRadius: radius))
         .onHover { isHovered = $0 }
-        .task(id: isPressed) {
+        .onChange(of: isPressed) { _, pressed in
             guard isCard else { return }
-            if isPressed {
+            pressReleaseTask?.cancel()
+            if pressed {
                 isCompressed = true
-            } else {
-                // Brief clicks still get a visible press before the spring release.
-                try? await Task.sleep(for: .milliseconds(70))
-                guard !Task.isCancelled else { return }
-                isCompressed = false
+            } else if isCompressed {
+                pressReleaseTask = Task {
+                    // Only actual clicks schedule a release; scrolling creates no press tasks.
+                    try? await Task.sleep(for: .milliseconds(70))
+                    guard !Task.isCancelled else { return }
+                    isCompressed = false
+                }
             }
+        }
+        .onDisappear {
+            pressReleaseTask?.cancel()
+            pressReleaseTask = nil
+            isCompressed = false
+            isHovered = false
         }
     }
 }
@@ -120,11 +139,12 @@ struct NotebookToggle: View {
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isSelected: Bool
+    var size: CGFloat = ClipboardLayout.controlSize
     let action: () -> Void
 
     var body: some View {
         ToolbarIconButton(symbol: isSelected ? "book.closed.fill" : "book.closed",
-                          title: isSelected ? "返回剪贴板历史" : "记事本", action: action)
+                          title: isSelected ? "返回剪贴板历史" : "记事本", size: size, action: action)
             .background(isSelected ? ClipboardTheme.controlFill : .clear,
                         in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
             .overlay(alignment: .topTrailing) {

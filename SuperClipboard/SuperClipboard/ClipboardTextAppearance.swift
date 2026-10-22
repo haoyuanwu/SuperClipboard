@@ -15,7 +15,7 @@ enum ClipboardCardPalette {
     }
 }
 
-enum ClipboardTextAppearance {
+nonisolated enum ClipboardTextAppearance {
     static let documentBackgroundKey = NSAttributedString.Key("SuperClipboard.documentBackground")
     private static let darkCanvas = NSColor(calibratedRed: 0.15, green: 0.165, blue: 0.20, alpha: 1)
     private static let lightCanvas = NSColor(deviceRed: 0.97, green: 0.97, blue: 0.98, alpha: 1)

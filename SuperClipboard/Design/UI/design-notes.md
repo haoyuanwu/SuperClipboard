@@ -53,7 +53,23 @@ Contrast results apply to app-owned colors. User-provided rich-text colors and b
 ## Notebook addition
 
 - The book icon toggles between clipboard history and an independent saved list in both surfaces. The active icon uses the existing toolbar accent and control fill; no new palette was introduced.
-- Main category targets are 24 × 28 pt within their capsule, keeping the new entry on the same toolbar row at the existing 420–460 pt window width. Search, notebook and utility targets remain 32 pt.
+- The main window keeps its existing 420–460 pt width. Its toolbar now separates search and utility actions from labeled category filters and sorting, giving the controls room without widening the window.
 - Empty notebook copy explains the history context-menu entry. Settings groups the directory, migration action and persistence explanation together in the scrollable form.
 - Isolated fixture UI checked: main toolbar, empty and populated notebook, right-click save, and settings directory layout. Popover controls and copy actions were inspected in the accessibility tree.
 - `Scripts/test_notebook.sh` exercises source-independent storage, rich text, same-name files, source removal, cleanup, copying, restart, migration and failure protection using temporary directories and a private pasteboard.
+
+## Popover glass — 2026-10-22
+
+- A single regular Liquid Glass surface covers the panel on macOS 26, with a restrained light tint or smoke tint for dark mode. macOS 14/15 use ultra-thin material. Card content retains its existing opaque gradient surfaces.
+- Search uses an adaptive readability veil; its placeholder no longer adds extra transparency. Utility controls sit on a lighter/darker adaptive header veil. Native popover windows use a clear background so an opaque window fill does not cover the material.
+- Reduce Transparency and Increased Contrast select the existing solid page background. This avoids nesting expensive glass layers inside the scrolling cards.
+- Contrast validation now measures 188 pairs, including search text/placeholder/icons and header controls against both black and white underlying backdrops in light/dark appearance. All pass. The system-rendered glass itself depends on backdrop and system preferences; the measured veil bounds do not assert a fixed glass color.
+- Isolated native preview checked in both light and dark appearance, including search, utility icons, copied counts and rich-text canvas.
+- API availability checked against the local macOS SDK and Apple's documentation: https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views
+
+## Compact window hierarchy
+
+- The main window uses a 46 pt title and action row above a 42 pt filter row. Category names stay visible; sorting sits at the end of the filter row. Search expansion keeps the utility actions available.
+- The status bar popover keeps its 390 × 520 pt frame. Search and window actions occupy the first glass row; history/notebook modes and the visible count occupy a second row. The selected mode uses a distinct surface and a short spring transition.
+- Category labels use neutral foregrounds on tinted controls. The updated contrast check requires 4.5:1 for these labels and passes 188/188 measured pairs across light and dark appearances.
+- Main window screenshots were inspected at actual size with search both collapsed and expanded. The visible popover states still need a live screenshot check in the menu bar surface.

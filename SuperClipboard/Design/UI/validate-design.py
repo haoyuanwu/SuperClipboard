@@ -44,18 +44,22 @@ for dark in [false, true] {
         measure("\(mode)/copy-action", NSColor(ClipboardTheme.actionForeground), NSColor(ClipboardTheme.actionFill), 4.5)
         measure("\(mode)/copied-feedback", NSColor(ClipboardTheme.successText), NSColor(ClipboardTheme.successFill), 4.5)
         measure("\(mode)/destructive-action", NSColor(ClipboardTheme.dangerText), page, 4.5)
+        for (name, backdrop) in [("black", NSColor.black), ("white", NSColor.white)] {
+            let search = compose(NSColor(ClipboardTheme.popoverSearchFill), backdrop)
+            let glassHeader = compose(NSColor(ClipboardTheme.popoverHeaderFill), backdrop)
+            measure("\(mode)/glass-search/\(name)/text", NSColor(ClipboardTheme.primary), search, 4.5)
+            measure("\(mode)/glass-search/\(name)/placeholder", NSColor(ClipboardTheme.secondary), search, 4.5)
+            measure("\(mode)/glass-search/\(name)/glyph", NSColor(ClipboardTheme.secondary), search, 3)
+            measure("\(mode)/glass-header/\(name)/toolbar", NSColor(ClipboardTheme.toolbarAccent), glassHeader, 3)
+        }
         for section in [LibrarySection.all, .text, .image, .file, .video] {
             let tint = resolved(NSColor(dark ? section.tint : section.lightTint))
             for state in ["default", "hover", "selected"] {
                 let selected = state == "selected", hovered = state == "hover"
                 let opacity: CGFloat = dark ? (selected ? 0.20 : (hovered ? 0.30 : 0.07)) : (selected ? 1 : (hovered ? 0.18 : 0.09))
                 let background = compose(tint.withAlphaComponent(opacity), group)
-                var glyph = !dark && selected ? NSColor.white : tint.withAlphaComponent(dark && !selected && !hovered ? 0.82 : 1)
-                if dark && hovered {
-                    let rgb = resolved(glyph)
-                    glyph = NSColor(deviceRed: min(1, rgb.redComponent + 0.08), green: min(1, rgb.greenComponent + 0.08), blue: min(1, rgb.blueComponent + 0.08), alpha: 1)
-                }
-                measure("\(mode)/category/\(section.rawValue)/\(state)", glyph, background, 3)
+                let label = !dark && selected ? NSColor.white : NSColor(ClipboardTheme.primary)
+                measure("\(mode)/category/\(section.rawValue)/\(state)", label, background, 4.5)
             }
         }
         for (index, tint) in [NSColor.black, .white, .red, .green, .blue, .orange, .purple, .gray].enumerated() {

@@ -39,6 +39,8 @@ enum ClipboardTheme {
     static let cardPrimary = adaptive(light: (0, 0, 0), dark: (0.96, 0.97, 0.99))
     static let cardSecondary = adaptive(light: (0.12, 0.14, 0.17), dark: (0.94, 0.95, 0.97))
     static let controlFill = adaptive(light: (0, 0, 0), dark: (1, 1, 1), alpha: 0.065)
+    static let popoverSearchFill = adaptive(light: (1, 1, 1), dark: (0.08, 0.10, 0.14), alpha: 0.88)
+    static let popoverHeaderFill = adaptive(light: (1, 1, 1), dark: (0.08, 0.10, 0.14), alpha: 0.78)
     static let border = adaptive(light: (0, 0, 0), dark: (1, 1, 1), alpha: 0.12)
     static let focusRing = adaptive(light: (0.05, 0.28, 0.76), dark: (0.45, 0.72, 1))
     static let hoverBorder = adaptive(light: (0.08, 0.27, 0.61), dark: (0.65, 0.78, 0.98))

@@ -8,6 +8,7 @@
 import AppKit
 import AVKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum LibrarySection: String, CaseIterable, Identifiable {
     case all = "全部", text = "文字", image = "图片", file = "文件", video = "视频", settings = "设置", about = "关于"
@@ -50,6 +51,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: ClipboardStore
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var launchAtLogin: LaunchAtLoginManager
     @AppStorage("appearanceMode") private var appearanceMode: AppAppearanceMode = .light
     @State private var section: LibrarySection = .all
@@ -58,22 +60,27 @@ struct ContentView: View {
     @State private var activePanel: MainPanel?
     @State private var search = ""
     @State private var isSearchExpanded = false
+    @State private var historySession = ClipboardListSession()
+    @State private var notebookSession = ClipboardListSession()
     @FocusState private var isSearchFocused: Bool
 
     private var visibleItems: [ClipboardEntry] {
-        (showsNotebook ? store.sortedNotebookEntries : store.sortedEntries).filter { item in
+        let current = showsNotebook ? store.notebookEntries : store.entries
+        let session = showsNotebook ? notebookSession : historySession
+        return session.entries(from: current).filter { item in
             (section == .all || item.kind.rawValue == section.rawValue) &&
             (search.isEmpty || item.searchText.localizedCaseInsensitiveContains(search))
         }
     }
 
     var body: some View {
+        let items = visibleItems
         VStack(spacing: 0) {
             header
                 .zIndex(1)
             ScrollView {
-                VStack(alignment: .leading, spacing: ClipboardLayout.cardGap) {
-                    if visibleItems.isEmpty {
+                LazyVStack(alignment: .leading, spacing: ClipboardLayout.cardGap) {
+                    if items.isEmpty {
                         ContentUnavailableView(
                             search.isEmpty ? (showsNotebook ? "记事本还是空的" : "暂无剪贴板记录") : "没有匹配的记录",
                             systemImage: showsNotebook ? "book.closed" : "doc.on.clipboard",
@@ -81,14 +88,12 @@ struct ContentView: View {
                         )
                         .frame(maxWidth: .infinity, minHeight: 300)
                     } else {
-                        LazyVStack(spacing: ClipboardLayout.cardGap) {
-                            ForEach(visibleItems) { item in
-                                Button { selectedItem = item } label: {
-                                    HistoryCard(item: item)
-                                }
-                                .buttonStyle(HistoryCardButtonStyle())
-                                .contextMenu { EntryContextMenu(item: item) }
+                        ForEach(items) { item in
+                            Button { selectedItem = item } label: {
+                                HistoryCard(item: item)
                             }
+                            .buttonStyle(HistoryCardButtonStyle())
+                            .contextMenu { EntryContextMenu(item: item) }
                         }
                     }
                 }
@@ -101,6 +106,20 @@ struct ContentView: View {
         .foregroundStyle(ClipboardTheme.primary)
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 420, maxWidth: 460, minHeight: 440)
+        .background {
+            AppWindowObserver(role: .main) { visible in
+                if visible { refreshSessionOrder() }
+            }
+            .allowsHitTesting(false)
+        }
+        .onAppear { refreshSessionOrder() }
+        .onChange(of: store.sortOrder) { _, _ in refreshSessionOrder() }
+        .onChange(of: store.entries.map(\.id)) { _, _ in
+            historySession.includeNewEntries(from: store.entries)
+        }
+        .onChange(of: store.notebookEntries.map(\.id)) { _, _ in
+            notebookSession.includeNewEntries(from: store.notebookEntries)
+        }
         .modifier(NotebookErrorAlert(isEnabled: activePanel == nil && selectedItem == nil))
         .sheet(item: $selectedItem) { item in
             EntryDetail(item: item)
@@ -143,39 +162,57 @@ struct ContentView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 4) {
-            if isSearchExpanded {
-                HStack(spacing: 5) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(ClipboardTheme.toolbarAccent)
-                    TextField(text: $search, prompt: Text("搜索记录").foregroundColor(ClipboardTheme.secondary.opacity(0.8))) { Text("搜索记录") }
-                        .textFieldStyle(.plain)
-                        .focused($isSearchFocused)
-                        .onExitCommand { closeSearch() }
-                    Button { closeSearch() } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(ClipboardTheme.secondary)
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                if isSearchExpanded {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(ClipboardTheme.toolbarAccent)
+                        TextField(text: $search, prompt: Text("搜索记录").foregroundColor(ClipboardTheme.secondary)) { Text("搜索记录") }
+                            .textFieldStyle(.plain)
+                            .focused($isSearchFocused)
+                            .onExitCommand { closeSearch() }
+                        Button { closeSearch() } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(ClipboardTheme.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("收起搜索")
                     }
-                    .buttonStyle(.plain)
-                    .help("收起搜索")
+                    .padding(.horizontal, 9)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                    .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 9))
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+                } else {
+                    Text(showsNotebook ? "记事本" : "剪贴板")
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    ToolbarIconButton(symbol: "magnifyingglass", title: "展开搜索", size: 30) {
+                        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.84)) { isSearchExpanded = true }
+                        isSearchFocused = true
+                    }
                 }
-                .padding(.horizontal, 9)
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 8))
-                .transition(.opacity.combined(with: .move(edge: .leading)))
-            } else {
-                ToolbarIconButton(symbol: "magnifyingglass", title: "展开搜索") {
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { isSearchExpanded = true }
-                    isSearchFocused = true
+                NotebookToggle(isSelected: showsNotebook, size: 30) {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.84)) {
+                        showsNotebook.toggle()
+                        section = .all
+                        search = ""
+                    }
                 }
+                ToolbarIconButton(symbol: "tray.full", title: "悬浮中转", size: 30) {
+                    store.transferWindowDidOpen()
+                    AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
+                }
+                ToolbarIconButton(symbol: "gearshape", title: "设置", size: 30) { activePanel = .settings }
+                ToolbarIconButton(symbol: "info.circle", title: "关于", size: 30) { activePanel = .about }
             }
-            NotebookToggle(isSelected: showsNotebook) {
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
-                    showsNotebook.toggle()
-                    section = .all
-                    search = ""
-                }
-            }
-            if !isSearchExpanded {
+            .padding(.leading, 78)
+            .padding(.trailing, 12)
+            .frame(height: 46)
+            .background(WindowDragArea())
+
+            HStack(spacing: 8) {
+                categoryBar
                 Spacer(minLength: 4)
                 Menu {
                     ForEach(ClipboardSortOrder.allCases) { value in
@@ -189,41 +226,43 @@ struct ContentView: View {
                     }
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(ClipboardTheme.toolbarAccent)
-                        .frame(width: ClipboardLayout.controlSize, height: ClipboardLayout.controlSize)
+                        .frame(width: 30, height: 30)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .frame(width: ClipboardLayout.controlSize, height: ClipboardLayout.controlSize)
+                .frame(width: 30, height: 30)
                 .accessibilityLabel("排序：\(store.sortOrder.rawValue)")
                 .help("排序：\(store.sortOrder.rawValue)")
-                categoryBar
-                Spacer(minLength: 4)
             }
-            HStack(spacing: 0) {
-                ToolbarIconButton(symbol: "gearshape", title: "设置") { activePanel = .settings }
-                ToolbarIconButton(symbol: "info.circle", title: "关于") { activePanel = .about }
+            .padding(.horizontal, ClipboardLayout.pageInset)
+            .frame(height: 42)
+            .background(ClipboardTheme.pageBackground.opacity(0.74))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(ClipboardTheme.border.opacity(0.7)).frame(height: 1)
             }
         }
         .font(.system(size: 13, weight: .medium))
         .foregroundStyle(ClipboardTheme.primary)
-        .padding(.leading, 78)
-        .padding(.trailing, 12)
-        .frame(height: 44)
-        .background(WindowDragArea())
         .background(ClipboardTheme.headerBackground)
     }
 
+    private func refreshSessionOrder() {
+        historySession.begin(with: store.sortedEntries)
+        notebookSession.begin(with: store.sortedNotebookEntries)
+    }
+
     private var categoryBar: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 3) {
             ForEach([LibrarySection.all, .text, .image, .file, .video]) { value in
                 CategoryButton(section: value, isSelected: section == value) {
                     section = value
                 }
             }
         }
-        .padding(2)
-        .background(ClipboardTheme.controlFill, in: Capsule())
+        .padding(3)
+        .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 11))
     }
 
     private func closeSearch() {
@@ -267,6 +306,27 @@ struct ContentView: View {
                 Button("清空未置顶记录", role: .destructive) { store.clearUnpinned() }
                     .foregroundStyle(ClipboardTheme.dangerText)
             }
+            Section("悬浮中转") {
+                Toggle("拖入内容同时保存到历史记录", isOn: $store.transferDropSavesHistory)
+                Text("默认关闭。拖入的图片、视频和文件始终保存独立中转副本；开启后也记入历史记录。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ClipboardTheme.secondary)
+                HStack(spacing: 6) {
+                    Text("关闭后清空")
+                    Spacer()
+                    TextField("", value: $store.transferClearMinutes, format: .number.grouping(.never))
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 48)
+                        .labelsHidden()
+                        .accessibilityLabel("中转站自动清空时间，分钟")
+                    Text("分钟").fixedSize().foregroundStyle(ClipboardTheme.secondary)
+                    Stepper("自动清空时间", value: $store.transferClearMinutes, in: 1...1440)
+                        .labelsHidden()
+                }
+                Text("默认 10 分钟，支持 1–1440 分钟。重新打开取消倒计时，只清理中转副本。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ClipboardTheme.secondary)
+            }
             Section("记事本") {
                 Button {
                     NSWorkspace.shared.open(store.notebookDirectory)
@@ -285,7 +345,7 @@ struct ContentView: View {
                         if store.notebookBusy { ProgressView().controlSize(.small) }
                     }
                 }
-                .disabled(store.notebookBusy)
+                .disabled(store.notebookBusy || store.transferBusy)
                 Text("加入时保存独立副本，永久保留；更改位置会迁移已有内容。")
                     .font(.system(size: 12))
                     .foregroundStyle(ClipboardTheme.secondary)
@@ -319,7 +379,6 @@ private struct CategoryButton: View {
     let isSelected: Bool
     let action: () -> Void
     @State private var isHovered = false
-    @State private var showsName = false
 
     private var iconTint: Color {
         colorScheme == .dark ? section.tint : section.lightTint
@@ -334,61 +393,31 @@ private struct CategoryButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: section.symbol)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(colorScheme == .light && isSelected ? .white : iconTint.opacity(colorScheme == .light || isSelected || isHovered ? 1 : 0.82))
-                .brightness(colorScheme == .dark && isHovered ? 0.08 : 0)
-                .shadow(color: iconTint.opacity(isHovered ? 0.14 : 0), radius: 3)
-                .frame(width: 24, height: 28)
-                .background(buttonFill, in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(iconTint.opacity(isHovered ? 0.4 : 0), lineWidth: 1)
-                }
-                .overlay {
-                    if isFocused {
-                        Capsule().stroke(ClipboardTheme.focusRing, lineWidth: 2)
-                            .padding(-2)
-                    }
-                }
-                .scaleEffect(!reduceMotion && isHovered ? 1.04 : 1)
+            HStack(spacing: 5) {
+                Image(systemName: section.symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 14)
+                Text(section.rawValue)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                    .fixedSize()
+            }
+            .foregroundStyle(colorScheme == .light && isSelected ? .white : ClipboardTheme.primary)
+            .padding(.horizontal, 7)
+            .frame(height: 28)
+            .background(buttonFill, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isFocused ? ClipboardTheme.focusRing : iconTint.opacity(isHovered ? 0.3 : 0), lineWidth: isFocused ? 2 : 1)
+            }
+            .scaleEffect(!reduceMotion && isHovered ? 1.025 : 1)
         }
         .buttonStyle(.plain)
         .focused($isFocused)
         .accessibilityLabel(section.rawValue)
         .accessibilityValue(isSelected ? "已选择" : "")
-        .onHover { hovering in
-            isHovered = hovering
-            if !hovering { showsName = false }
-        }
-        .task(id: isHovered) {
-            guard isHovered else { return }
-            do {
-                try await Task.sleep(for: .seconds(2))
-                try Task.checkCancellation()
-                showsName = true
-            } catch { }
-        }
-        .overlay(alignment: .top) {
-            if showsName {
-                Text(section.rawValue)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(ClipboardTheme.primary)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(ClipboardTheme.headerBackground, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 7).strokeBorder(ClipboardTheme.border, lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-                    .fixedSize()
-                    .offset(y: 36)
-                    .transition(.opacity.combined(with: .offset(y: -3)))
-                    .allowsHitTesting(false)
-            }
-        }
+        .onHover { isHovered = $0 }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isHovered)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isSelected)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: showsName)
     }
 }
 
@@ -401,10 +430,14 @@ private struct HistoryCard: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var store: ClipboardStore
     let item: ClipboardEntry
+    var isTranslucent = false
+    @State private var preview: ClipboardPreview?
+    @State private var loadedAspectRatio: CGFloat?
 
     private var accent: Color { AppIconPalette.color(for: item.sourceBundleID) }
 
     var body: some View {
+        let request = store.listPreviewRequest(for: item)
         VStack(alignment: .leading, spacing: 0) {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -439,26 +472,44 @@ private struct HistoryCard: View {
                         endPoint: .bottomTrailing
                     )
                 )
+                .opacity(isTranslucent ? (colorScheme == .dark ? 0.82 : 0.78) : 1)
+                .shadow(color: .black.opacity(isTranslucent ? (colorScheme == .dark ? 0.22 : 0.12) : 0),
+                        radius: 12, x: 0, y: 6)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: ClipboardLayout.cardRadius).strokeBorder(accent.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ClipboardLayout.cardRadius)
+                .strokeBorder(
+                    isTranslucent ? Color.white.opacity(colorScheme == .dark ? 0.20 : 0.62) : accent.opacity(0.18),
+                    lineWidth: 1
+                )
         }
+        .task(id: request) {
+            let loaded = await store.loadListPreview(for: item, request: request)
+            guard !Task.isCancelled else { return }
+            preview = loaded
+            if let ratio = loaded?.aspectRatio { loadedAspectRatio = ratio }
+        }
+        .onDisappear { preview = nil }
     }
 
     @ViewBuilder
     private var content: some View {
         switch item.kind {
         case .text:
-            if let rich = store.richText(for: item) {
-                RichTextPreview(attributedText: rich, singleLine: false, heightLimit: 126)
+            if let rich = colorScheme == .dark ? preview?.darkText : preview?.lightText {
+                RichTextPreview(attributedText: rich, singleLine: false, heightLimit: 126, usesPreparedColors: true)
                     .frame(maxHeight: 126, alignment: .top)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(nsColor: ClipboardTextAppearance.canvas(for: rich, isDark: colorScheme == .dark)), in: RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
+                    .background(
+                        Color(nsColor: (colorScheme == .dark ? preview?.darkCanvas : preview?.lightCanvas) ?? .textBackgroundColor)
+                            .opacity(isTranslucent ? 0.90 : 1),
+                        in: RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius)
+                    )
                     .frame(maxHeight: 150, alignment: .top)
                     .clipped()
             } else {
-                Text(item.plainText ?? "")
+                Text(String((item.plainText ?? "").prefix(12_000)))
                     .font(.system(size: 14))
                     .lineSpacing(3)
                     .foregroundStyle(ClipboardTheme.cardPrimary)
@@ -468,17 +519,16 @@ private struct HistoryCard: View {
             }
         case .image:
             VStack(alignment: .leading, spacing: 8) {
-                if let image = store.thumbnail(for: item) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
-                } else {
-                    Image(systemName: "photo")
-                        .font(.largeTitle)
-                        .frame(maxWidth: .infinity, minHeight: 100)
-                        .foregroundStyle(ClipboardTheme.cardSecondary)
+                Group {
+                    if let image = preview?.image {
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
+                    } else {
+                        mediaPlaceholder(symbol: "photo", ratio: 1)
+                    }
                 }
                 Text(item.title)
                     .font(.system(size: 12))
@@ -487,12 +537,14 @@ private struct HistoryCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .video:
-            if let image = store.thumbnail(for: item) {
-                Image(nsImage: image)
+            if let image = preview?.image {
+                Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
+            } else if preview == nil {
+                mediaPlaceholder(symbol: "play.rectangle", ratio: 16.0 / 9.0)
             } else {
                 Text(item.title).font(.system(size: 14))
             }
@@ -503,25 +555,48 @@ private struct HistoryCard: View {
         }
     }
 
+    private func mediaPlaceholder(symbol: String, ratio: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius)
+            .fill(ClipboardTheme.controlFill)
+            .aspectRatio(loadedAspectRatio ?? item.previewAspectRatio ?? ratio, contentMode: .fit)
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.largeTitle)
+                    .foregroundStyle(ClipboardTheme.cardSecondary)
+            }
+    }
+
 }
 
 @MainActor
 private enum AppIconPalette {
     private static var cached: [String: Color] = [:]
+    private static var icons: [String: NSImage] = [:]
+    private static var missingIcons: Set<String> = []
     private static let fallback = Color(red: 0.27, green: 0.30, blue: 0.38)
 
     static func icon(for bundleID: String?) -> NSImage? {
-        guard let bundleID,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
+        guard let bundleID, !missingIcons.contains(bundleID) else { return nil }
+        if let image = icons[bundleID] { return image }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            missingIcons.insert(bundleID)
+            return nil
+        }
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        icons[bundleID] = image
+        return image
     }
 
     static func color(for bundleID: String?) -> Color {
         guard let bundleID else { return fallback }
         if let cachedColor = cached[bundleID] { return cachedColor }
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
-              let data = NSWorkspace.shared.icon(forFile: url.path).tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: data) else { return fallback }
+        var rect = NSRect(x: 0, y: 0, width: 32, height: 32)
+        guard let icon = icon(for: bundleID),
+              let cgImage = icon.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
+            cached[bundleID] = fallback
+            return fallback
+        }
+        let bitmap = NSBitmapImageRep(cgImage: cgImage)
 
         var bestColor: NSColor?
         var bestScore: CGFloat = 0
@@ -551,9 +626,8 @@ private struct SourceAppBadge: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Group {
-                if let id = item.sourceBundleID,
-                   let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                if let icon = AppIconPalette.icon(for: item.sourceBundleID) {
+                    Image(nsImage: icon)
                         .resizable()
                         .interpolation(.high)
                 } else {
@@ -573,11 +647,13 @@ private struct SourceAppBadge: View {
 struct MenuPopoverView: View {
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var search = ""
     @State private var copiedItemID: UUID?
     @State private var copyFeedbackToken = 0
     @State private var sessionOrder: [UUID] = []
     @State private var showsNotebook = false
+    @State private var confirmsQuit = false
 
     private var sortedItems: [ClipboardEntry] {
         showsNotebook ? store.sortedNotebookEntries : store.sortedEntries
@@ -592,46 +668,72 @@ struct MenuPopoverView: View {
     }
 
     var body: some View {
+        let items = visibleItems
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                HStack(spacing: 7) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(ClipboardTheme.secondary)
-                    TextField(text: $search, prompt: Text("搜索记录").foregroundColor(ClipboardTheme.secondary.opacity(0.8))) { Text("搜索记录") }
-                        .textFieldStyle(.plain)
-                        .accessibilityLabel("搜索记录")
-                        .onExitCommand { search = "" }
-                    if !search.isEmpty {
-                        Button { search = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(ClipboardTheme.secondary)
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(ClipboardTheme.secondary)
+                        TextField(text: $search, prompt: Text("搜索记录").foregroundColor(ClipboardTheme.secondary)) { Text("搜索记录") }
+                            .textFieldStyle(.plain)
+                            .accessibilityLabel("搜索记录")
+                            .onExitCommand { search = "" }
+                        if !search.isEmpty {
+                            Button { search = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(ClipboardTheme.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("清空搜索")
                         }
-                        .buttonStyle(.plain)
-                        .help("清空搜索")
+                    }
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 10)
+                    .frame(height: 36)
+                    .background(ClipboardTheme.popoverSearchFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
+
+                    ToolbarIconButton(symbol: "tray.full", title: "悬浮中转") {
+                        store.transferWindowDidOpen()
+                        AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
+                    }
+                    ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口") {
+                        AppWindowCoordinator.showMainWindow { openWindow(id: "main") }
+                    }
+                    ToolbarIconButton(symbol: "power", title: "退出 SuperClipboard") {
+                        confirmsQuit = true
                     }
                 }
-                .font(.system(size: 13))
-                .padding(.horizontal, 10)
-                .frame(height: 36)
-                .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
 
-                NotebookToggle(isSelected: showsNotebook) {
-                    showsNotebook.toggle()
-                    search = ""
-                    copiedItemID = nil
-                    sessionOrder = sortedItems.map(\.id)
-                }
-                ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口") {
-                    AppWindowCoordinator.showMainWindow { openWindow(id: "main") }
+                HStack(spacing: 8) {
+                    HStack(spacing: 2) {
+                        PopoverModeButton(title: "历史记录", symbol: "clock.arrow.circlepath", isSelected: !showsNotebook) {
+                            selectPopoverMode(notebook: false)
+                        }
+                        PopoverModeButton(title: "记事本", symbol: "book.closed", isSelected: showsNotebook) {
+                            selectPopoverMode(notebook: true)
+                        }
+                    }
+                    .padding(2)
+                    .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 10))
+                    Spacer(minLength: 6)
+                    Text("\(items.count) 条")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(ClipboardTheme.secondary)
+                        .accessibilityLabel("当前显示 \(items.count) 条记录")
                 }
             }
             .padding(.horizontal, ClipboardLayout.pageInset)
-            .padding(.vertical, 10)
-            .background(ClipboardTheme.headerBackground)
+            .padding(.top, 10)
+            .padding(.bottom, 9)
+            .modifier(PopoverHeaderGlassSurface())
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(ClipboardTheme.border.opacity(0.6)).frame(height: 1)
+            }
 
             ScrollView {
                 LazyVStack(spacing: ClipboardLayout.cardGap) {
-                    ForEach(visibleItems) { item in
+                    ForEach(items) { item in
                         Button {
                             if store.copy(item) {
                                 copiedItemID = item.id
@@ -648,7 +750,7 @@ struct MenuPopoverView: View {
                 .padding(ClipboardLayout.pageInset)
             }
             .overlay {
-                if visibleItems.isEmpty {
+                if items.isEmpty {
                     ContentUnavailableView(
                         search.isEmpty ? (showsNotebook ? "记事本还是空的" : "暂无剪贴板记录") : "没有匹配的记录",
                         systemImage: search.isEmpty ? (showsNotebook ? "book.closed" : "doc.on.clipboard") : "magnifyingglass",
@@ -657,16 +759,34 @@ struct MenuPopoverView: View {
                 }
             }
         }
-        .background(ClipboardTheme.pageBackground)
+        .allowsHitTesting(!confirmsQuit)
+        .accessibilityHidden(confirmsQuit)
+        .modifier(PopoverGlassSurface())
         .foregroundStyle(ClipboardTheme.primary)
         .frame(width: 390, height: 520)
         .modifier(NotebookErrorAlert())
+        .overlay {
+            if confirmsQuit {
+                ZStack {
+                    Color.black.opacity(0.16)
+                        .contentShape(Rectangle())
+                        .onTapGesture { }
+                    QuitGlassConfirmation {
+                        confirmsQuit = false
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.96)))
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: confirmsQuit)
         .background {
             AppWindowObserver(role: .popover) { isVisible in
                 if isVisible {
                     beginHistorySession()
                 } else {
                     copiedItemID = nil
+                    confirmsQuit = false
                 }
             }
             .allowsHitTesting(false)
@@ -683,7 +803,7 @@ struct MenuPopoverView: View {
                 copiedItemID = nil
             } catch { }
         }
-        .onDisappear { copiedItemID = nil }
+        .onDisappear { copiedItemID = nil; confirmsQuit = false }
     }
 
     private func beginHistorySession() {
@@ -692,15 +812,96 @@ struct MenuPopoverView: View {
         copiedItemID = nil
         sessionOrder = store.sortedEntries.map(\.id)
     }
+
+    private func selectPopoverMode(notebook: Bool) {
+        guard showsNotebook != notebook else { return }
+        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) {
+            showsNotebook = notebook
+        }
+        search = ""
+        copiedItemID = nil
+        sessionOrder = (notebook ? store.sortedNotebookEntries : store.sortedEntries).map(\.id)
+    }
+}
+
+private struct QuitGlassConfirmation: View {
+    let onCancel: () -> Void
+    @FocusState private var cancelIsFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "power")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(ClipboardTheme.toolbarAccent)
+                .frame(width: 52, height: 52)
+                .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 16))
+            VStack(spacing: 8) {
+                Text("退出 SuperClipboard？")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(ClipboardTheme.primary)
+                Text("退出后将停止记录剪贴板内容。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ClipboardTheme.secondary)
+            }
+            .multilineTextAlignment(.center)
+            HStack(spacing: 10) {
+                Button(action: onCancel) {
+                    Text("取消")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 10))
+                }
+                .focused($cancelIsFocused)
+                .keyboardShortcut(.cancelAction)
+                Button(role: .destructive) { NSApplication.shared.terminate(nil) } label: {
+                    Text("退出")
+                        .foregroundStyle(ClipboardTheme.dangerText)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            .font(.system(size: 13, weight: .medium))
+            .buttonStyle(ClipboardControlStyle())
+        }
+        .padding(22)
+        .frame(width: 310)
+        .modifier(PopoverGlassSurface())
+        .shadow(color: .black.opacity(0.16), radius: 20, x: 0, y: 10)
+        .accessibilityAddTraits(.isModal)
+        .onAppear { cancelIsFocused = true }
+    }
+}
+
+private struct PopoverModeButton: View {
+    let title: String
+    let symbol: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? ClipboardTheme.primary : ClipboardTheme.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 27)
+                .background(isSelected ? ClipboardTheme.popoverSearchFill : .clear,
+                            in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(ClipboardControlStyle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
 }
 
 private struct PopoverHistoryCard: View {
     let item: ClipboardEntry
     let isCopied: Bool
+    var isTranslucent = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HistoryCard(item: item)
+        HistoryCard(item: item, isTranslucent: isTranslucent)
             .overlay(alignment: .topTrailing) {
                 if isCopied {
                     Label("已复制", systemImage: "checkmark")
@@ -723,18 +924,49 @@ private struct RichTextPreview: NSViewRepresentable {
     let attributedText: NSAttributedString
     let singleLine: Bool
     var heightLimit: CGFloat? = nil
+    var usesPreparedColors = false
+
+    final class Coordinator {
+        struct MeasurementKey: Hashable {
+            let width: CGFloat
+            let height: CGFloat
+        }
+        var source: NSAttributedString?
+        var isDark = false
+        var usesPreparedColors = false
+        var resolvedText: NSAttributedString?
+        var appliedText: NSAttributedString?
+        var measurements: [MeasurementKey: CGSize] = [:]
+
+        func resolve(_ source: NSAttributedString, isDark: Bool, usesPreparedColors: Bool) -> NSAttributedString {
+            if self.source === source, self.isDark == isDark,
+               self.usesPreparedColors == usesPreparedColors, let resolvedText { return resolvedText }
+            self.source = source
+            self.isDark = isDark
+            self.usesPreparedColors = usesPreparedColors
+            let result = usesPreparedColors ? source : ClipboardTextAppearance.preview(for: source, isDark: isDark)
+            resolvedText = result
+            measurements.removeAll(keepingCapacity: true)
+            return result
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSTextField {
-        let view = NSTextField(labelWithAttributedString: ClipboardTextAppearance.preview(for: attributedText, isDark: colorScheme == .dark))
+        let text = context.coordinator.resolve(attributedText, isDark: colorScheme == .dark, usesPreparedColors: usesPreparedColors)
+        let view = NSTextField(labelWithAttributedString: text)
+        context.coordinator.appliedText = text
         view.lineBreakMode = singleLine ? .byTruncatingTail : .byWordWrapping
         view.maximumNumberOfLines = singleLine ? 1 : 0
         view.cell?.wraps = !singleLine
         return view
     }
     func updateNSView(_ view: NSTextField, context: Context) {
-        let preview = ClipboardTextAppearance.preview(for: attributedText, isDark: colorScheme == .dark)
-        if !view.attributedStringValue.isEqual(to: preview) {
+        let preview = context.coordinator.resolve(attributedText, isDark: colorScheme == .dark, usesPreparedColors: usesPreparedColors)
+        if context.coordinator.appliedText !== preview {
             view.attributedStringValue = preview
+            context.coordinator.appliedText = preview
         }
         let lineBreakMode: NSLineBreakMode = singleLine ? .byTruncatingTail : .byWordWrapping
         if view.lineBreakMode != lineBreakMode { view.lineBreakMode = lineBreakMode }
@@ -742,33 +974,51 @@ private struct RichTextPreview: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
         guard let width = proposal.width, width > 0 else { return nil }
-        let measured = attributedText.boundingRect(
-            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+        let text = context.coordinator.resolve(attributedText, isDark: colorScheme == .dark, usesPreparedColors: usesPreparedColors)
+        let limit = singleLine ? 22 : (heightLimit ?? .greatestFiniteMagnitude)
+        let key = Coordinator.MeasurementKey(width: width, height: limit)
+        if let cached = context.coordinator.measurements[key] { return cached }
+        let measured = text.boundingRect(
+            with: CGSize(width: width, height: limit),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
         let naturalHeight = singleLine ? min(22, ceil(measured.height)) : ceil(measured.height)
-        return CGSize(width: width, height: min(heightLimit ?? naturalHeight, max(20, naturalHeight)))
+        let result = CGSize(width: width, height: min(heightLimit ?? naturalHeight, max(20, naturalHeight)))
+        if context.coordinator.measurements.count > 8 { context.coordinator.measurements.removeAll(keepingCapacity: true) }
+        context.coordinator.measurements[key] = result
+        return result
     }
 }
 
 private struct EntryContextMenu: View {
     @EnvironmentObject private var store: ClipboardStore
+    @Environment(\.openWindow) private var openWindow
     let item: ClipboardEntry
     var body: some View {
         Button("再次复制", systemImage: "doc.on.doc") { store.copy(item) }
+        if !item.isTransferEntry {
+            Button(store.isInTransfer(item) ? "在悬浮中转中显示" : "加入悬浮中转", systemImage: "tray.and.arrow.down") {
+                store.transferWindowDidOpen()
+                store.addToTransfer(item)
+                AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
+            }
+            .disabled(store.transferBusy || store.notebookBusy)
+        }
         if !item.isNotebookEntry {
             Button(store.isInNotebook(item) ? "已加入记事本" : "加入记事本", systemImage: "book.closed") {
                 store.addToNotebook(item)
             }
-            .disabled(store.notebookBusy || store.isInNotebook(item))
+            .disabled(store.notebookBusy || store.transferBusy || store.isInNotebook(item))
         }
-        Button(item.isPinned ? "取消置顶" : "置顶", systemImage: "pin") { store.togglePin(item) }
+        if !item.isTransferEntry {
+            Button(item.isPinned ? "取消置顶" : "置顶", systemImage: "pin") { store.togglePin(item) }
+        }
         if let url = item.firstFileURL {
             Button("在访达中显示", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
         Divider()
-        Button(item.isNotebookEntry ? "从记事本移除" : "删除记录", systemImage: "trash", role: .destructive) { store.delete(item) }
-            .disabled(item.isNotebookEntry && store.notebookBusy)
+        Button(item.isTransferEntry ? "移出中转站" : (item.isNotebookEntry ? "从记事本移除" : "删除记录"), systemImage: "trash", role: .destructive) { store.delete(item) }
+            .disabled((item.isNotebookEntry || item.isTransferEntry) && (store.notebookBusy || store.transferBusy))
     }
 }
 
@@ -1044,5 +1294,350 @@ private struct VideoSurface: NSViewRepresentable {
 
     func updateNSView(_ view: AVPlayerView, context: Context) {
         if view.player !== player { view.player = player }
+    }
+}
+
+struct TransferShelfView: View {
+    @EnvironmentObject private var store: ClipboardStore
+    @Environment(\.dismissWindow) private var dismissWindow
+    @State private var copiedItemID: UUID?
+    @State private var copyToken = 0
+    @State private var confirmsClear = false
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "tray.full.fill")
+                    .foregroundStyle(ClipboardTheme.toolbarAccent)
+                Text("中转站").font(.system(size: 13, weight: .semibold))
+                Text("\(store.transferEntries.count)")
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(ClipboardTheme.secondary)
+                Spacer(minLength: 4)
+                if store.transferBusy {
+                    ProgressView().controlSize(.small)
+                        .help("正在保存中转副本")
+                }
+                ToolbarIconButton(symbol: "trash", title: "清空中转站", size: 28) { confirmsClear = true }
+                    .disabled(store.transferBusy || store.transferEntries.isEmpty)
+                ToolbarIconButton(symbol: "xmark", title: "关闭中转站", size: 28) {
+                    dismissWindow(id: "transfer")
+                }
+            }
+            .padding(.leading, 78)
+            .padding(.trailing, 12)
+            .frame(height: 44)
+            .background(WindowDragArea())
+            .modifier(PopoverHeaderGlassSurface(isTransferShelf: true))
+
+            ScrollView {
+                LazyVStack(spacing: ClipboardLayout.cardGap) {
+                    ForEach(store.transferEntries) { item in
+                        TransferShelfCard(item: item, isCopied: copiedItemID == item.id) {
+                            if store.copy(item) {
+                                copiedItemID = item.id
+                                copyToken += 1
+                            }
+                        }
+                    }
+                }
+                .padding(ClipboardLayout.pageInset)
+            }
+            .overlay {
+                if store.transferEntries.isEmpty && !store.transferBusy {
+                    ContentUnavailableView("中转站还是空的", systemImage: "tray",
+                        description: Text("拖入图片、视频、文件或文字，或在记录上右键加入。"))
+                }
+            }
+            Label("关闭后 \(store.transferClearMinutes) 分钟清空", systemImage: "clock")
+                .font(.system(size: 11))
+                .foregroundStyle(ClipboardTheme.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(ClipboardTheme.controlFill, in: Capsule())
+                .padding(.bottom, 10)
+        }
+        .foregroundStyle(ClipboardTheme.primary)
+        .modifier(TransferShelfGlassSurface())
+        .ignoresSafeArea(.container, edges: .top)
+        .frame(minWidth: 320, idealWidth: 350, maxWidth: 390, minHeight: 360)
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 18)
+                    .strokeBorder(ClipboardTheme.toolbarAccent, style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
+                    .background(ClipboardTheme.toolbarAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+                    .overlay {
+                        Label("松开以加入中转站", systemImage: "tray.and.arrow.down.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(.regularMaterial, in: Capsule())
+                    }
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: TransferShelfDropDelegate.supportedTypes,
+                delegate: TransferShelfDropDelegate(isTargeted: $isDropTargeted,
+                    canAccept: { !store.transferBusy && !store.notebookBusy }, accept: acceptDrop))
+        .background {
+            AppWindowObserver(role: .transfer, onVisibilityChange: { visible in
+                if visible { store.transferWindowDidOpen() }
+            }, onClose: {
+                store.transferWindowDidClose()
+            })
+            .allowsHitTesting(false)
+        }
+        .onAppear { store.transferWindowDidOpen() }
+        .onDisappear {
+            store.transferWindowDidClose()
+            copiedItemID = nil
+        }
+        .confirmationDialog("清空中转站？", isPresented: $confirmsClear) {
+            Button("清空", role: .destructive) { store.clearTransfer() }
+        } message: {
+            Text("仅删除中转副本，历史记录、记事本和源文件会保留。")
+        }
+        .alert("悬浮中转", isPresented: Binding(
+            get: { store.transferError != nil },
+            set: { if !$0 { store.transferError = nil } }
+        )) {
+            Button("好") { store.transferError = nil }
+        } message: {
+            Text(store.transferError ?? "")
+        }
+        .task(id: copyToken) {
+            guard copiedItemID != nil else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            copiedItemID = nil
+        }
+    }
+
+    private func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !store.transferBusy, !store.notebookBusy, !providers.isEmpty,
+              !ClipboardStore.isTransferDrag(providers) else { return false }
+        if providers.allSatisfy({ $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) {
+            let group = DispatchGroup()
+            var urls = Array<URL?>(repeating: nil, count: providers.count)
+            for (index, provider) in providers.enumerated() {
+                group.enter()
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    let url: URL?
+                    switch item {
+                    case let value as URL: url = value
+                    case let value as Data: url = URL(dataRepresentation: value, relativeTo: nil)
+                    case let value as String: url = URL(string: value)
+                    default: url = nil
+                    }
+                    DispatchQueue.main.async {
+                        urls[index] = url?.isFileURL == true ? url : nil
+                        group.leave()
+                    }
+                }
+            }
+            group.notify(queue: .main) {
+                if urls.allSatisfy({ $0 != nil }) {
+                    store.addDroppedFilesToTransfer(urls.compactMap { $0 })
+                } else {
+                    store.transferError = "无法读取拖入的文件。"
+                }
+            }
+            return true
+        }
+        guard providers.count == 1 else { return false }
+        if let identifier = providers[0].registeredTypeIdentifiers.first(where: {
+                  UTType($0)?.conforms(to: .image) == true
+              }) {
+            let fileExtension = UTType(identifier)?.preferredFilenameExtension ?? "png"
+            providers[0].loadDataRepresentation(forTypeIdentifier: identifier) { data, _ in
+                DispatchQueue.main.async {
+                    if let data {
+                        store.addDroppedImageToTransfer(data, fileExtension: fileExtension)
+                    } else {
+                        store.transferError = "无法读取拖入的图片。"
+                    }
+                }
+            }
+            return true
+        }
+        guard providers[0].hasItemConformingToTypeIdentifier(UTType.plainText.identifier) else { return false }
+        providers[0].loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+            let value: String?
+            switch item {
+            case let text as String: value = text
+            case let data as Data: value = String(data: data, encoding: .utf8)
+            default: value = nil
+            }
+            DispatchQueue.main.async {
+                if let value, !value.isEmpty {
+                    store.addDroppedTextToTransfer(value)
+                } else {
+                    store.transferError = "无法读取拖入的文字。"
+                }
+            }
+        }
+        return true
+    }
+}
+
+private struct TransferShelfDropDelegate: DropDelegate {
+    static let supportedTypes = [UTType.fileURL.identifier, UTType.image.identifier,
+                                 UTType.plainText.identifier, ClipboardStore.transferDragTypeIdentifier]
+    @Binding var isTargeted: Bool
+    let canAccept: () -> Bool
+    let accept: ([NSItemProvider]) -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        canAccept() && !info.hasItemsConforming(to: [ClipboardStore.transferDragTypeIdentifier])
+    }
+
+    func dropEntered(info: DropInfo) { isTargeted = validateDrop(info: info) }
+    func dropExited(info: DropInfo) { isTargeted = false }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        let allowed = validateDrop(info: info)
+        isTargeted = allowed
+        return DropProposal(operation: allowed ? .copy : .forbidden)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        guard validateDrop(info: info) else { return false }
+        return accept(info.itemProviders(for: Self.supportedTypes))
+    }
+}
+
+private struct TransferShelfCard: View {
+    @EnvironmentObject private var store: ClipboardStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let item: ClipboardEntry
+    let isCopied: Bool
+    let onCopy: () -> Void
+    @State private var isDragging = false
+
+    var body: some View {
+        Button(action: onCopy) {
+            PopoverHistoryCard(item: item, isCopied: isCopied, isTranslucent: true)
+        }
+        .buttonStyle(HistoryCardButtonStyle())
+        .contentShape(.dragPreview, RoundedRectangle(cornerRadius: ClipboardLayout.cardRadius))
+        .scaleEffect(isDragging && !reduceMotion ? 0.985 : 1)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isDragging)
+        .onDrag {
+            guard let provider = store.transferDragProvider(for: item) else { return NSItemProvider() }
+            if #available(macOS 26.0, *) { isDragging = true }
+            return provider
+        } preview: {
+            TransferDragPreview(item: item).environmentObject(store)
+        }
+        .modifier(TransferDragSessionFeedback(
+            onEnd: { _ in isDragging = false },
+            onTransferCompleted: { isDragging = false }
+        ))
+        .help("单击复制，拖到其他应用")
+        .contextMenu { EntryContextMenu(item: item) }
+        .onDisappear { isDragging = false }
+    }
+}
+
+private struct TransferDragSessionFeedback: ViewModifier {
+    let onEnd: (DropOperation) -> Void
+    let onTransferCompleted: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.onDragSessionUpdated { session in
+                switch session.phase {
+                case .initial, .active: break
+                case .ended(let operation): onEnd(operation)
+                case .dataTransferCompleted: onTransferCompleted()
+                @unknown default: onTransferCompleted()
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct TransferDragPreview: View {
+    @EnvironmentObject private var store: ClipboardStore
+    @Environment(\.colorScheme) private var colorScheme
+    let item: ClipboardEntry
+
+    var body: some View {
+        Group {
+            switch item.kind {
+            case .text:
+                Text(item.plainText ?? "")
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(3)
+                    .frame(width: 208, alignment: .leading)
+                    .padding(14)
+            case .image:
+                if let image = store.thumbnail(for: item) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 124, height: 96)
+                        .padding(6)
+                } else {
+                    mediaPreview(symbol: "photo", title: item.title)
+                }
+            case .video:
+                if let image = store.thumbnail(for: item) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 144, height: 90)
+                        .clipped()
+                        .overlay {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(.black.opacity(0.55), in: Circle())
+                        }
+                        .padding(6)
+                } else {
+                    mediaPreview(symbol: "play.rectangle.fill", title: item.title)
+                }
+            case .file:
+                mediaPreview(symbol: item.filePaths.count > 1 ? "folder.fill" : "doc.fill", title: item.title)
+            }
+        }
+        .foregroundStyle(ClipboardTheme.primary)
+        .background(ClipboardTheme.pageBackground, in: RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(.white.opacity(colorScheme == .dark ? 0.22 : 0.72), lineWidth: 1)
+        }
+    }
+
+    private func mediaPreview(symbol: String, title: String) -> some View {
+        HStack(spacing: 10) {
+            Group {
+                if item.kind == .file, item.filePaths.count == 1, let url = item.firstFileURL {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: 28, weight: .regular))
+                        .foregroundStyle(ClipboardTheme.toolbarAccent)
+                }
+            }
+            .frame(width: 38, height: 38)
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: 190)
+        .padding(12)
     }
 }

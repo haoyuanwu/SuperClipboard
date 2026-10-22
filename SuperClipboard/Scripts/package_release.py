@@ -19,7 +19,7 @@ def run(*args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--version', default='1.1.0')
+    parser.add_argument('--version', required=True)
     parser.add_argument('--arch', choices=['arm64', 'x86_64'], required=True)
     parser.add_argument('--derived-data', type=Path)
     parser.add_argument('--packages', type=Path, default=Path('/tmp/SuperClipboardSourcePackages'))

@@ -20,9 +20,18 @@ struct SuperClipboardApp: App {
                 .environmentObject(launchAtLogin)
                 .task { launchAtLogin.configureDefaultIfNeeded() }
                 .preferredColorScheme(appearanceMode.colorScheme)
-                .background(AppWindowObserver(role: .main).allowsHitTesting(false))
         }
         .defaultSize(width: 440, height: 640)
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+
+        Window("悬浮中转", id: "transfer") {
+            TransferShelfView()
+                .environmentObject(store)
+                .preferredColorScheme(appearanceMode.colorScheme)
+        }
+        .defaultSize(width: 350, height: 520)
+        .defaultPosition(.topTrailing)
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
 

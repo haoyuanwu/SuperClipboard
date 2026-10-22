@@ -10,8 +10,8 @@
 
 | 安装包 | 适用设备 |
 | --- | --- |
-| `SuperClipboard-1.1.0-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
-| `SuperClipboard-1.1.0-x86_64.dmg` | Intel Mac |
+| `SuperClipboard-1.2.0-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
+| `SuperClipboard-1.2.0-x86_64.dmg` | Intel Mac |
 
 系统要求：macOS 14 或更高版本。打开 DMG，将 SuperClipboard 拖入 Applications，再从“应用程序”启动。应用默认尝试注册开机启动，可以在设置中关闭；系统要求批准时，请前往“系统设置 → 通用 → 登录项”。
 
@@ -29,6 +29,9 @@
 - 支持文字、图片、文件、视频筛选，置顶、删除与清空未置顶记录。
 - 记事本独立保存文字、富文本、图片、文件和视频，删除源文件或清空历史后仍可读取。
 - 主页面与弹窗均提供记事本图标入口，设置支持更改保存目录并迁移。
+- 悬浮中转站始终置顶，支持拖入/拖出文字、图片、文件和视频；关闭后按设置时间自动清空。
+- 中转内容默认不写入历史，可在设置开启；自身拖回与重复内容不会重复添加。
+- 状态栏弹窗采用液态玻璃界面，提供中转入口和带玻璃确认浮层的退出按钮。
 - 提供浅色、深色与跟随系统模式，支持开机启动设置。
 
 详细操作及限制见 [功能介绍](SuperClipboard/docs/FEATURES.zh-CN.md)，版本变更见 [更新记录](CHANGELOG.md)。
@@ -38,11 +41,16 @@
 使用 Xcode 27 或更高版本打开 `SuperClipboard/SuperClipboard.xcodeproj`。项目使用 SwiftUI、AppKit、AVKit 和 ServiceManagement；SPM 会解析 MediaToolSwift 2.1.0。
 
 ```sh
-python3 SuperClipboard/Scripts/package_release.py --version 1.1.0 --arch arm64
-python3 SuperClipboard/Scripts/package_release.py --version 1.1.0 --arch x86_64
+# 首次配置 GitHub 登录
+~/.local/bin/gh auth login
+
+# 更新版本、运行验证、构建双架构 DMG、中文提交、推送并发布
+python3 SuperClipboard/Scripts/publish_release.py --version 1.2.0
 ```
 
-DMG 与 SHA-256 校验文件输出到 `SuperClipboard/dist/`。构建脚本默认使用临时签名，不包含 Apple 公证流程。
+之后每次发布都运行 `publish_release.py --version 新版本号`。脚本自动递增构建号、整理“未发布”更新记录、执行记事本/预览/中转站测试，生成 Apple Silicon 与 Intel 安装包、SHA-256 和构建清单；上传到草稿后确认附件齐全再正式发布。提交记录使用中文，本地 Xcode 窗口状态不参与提交。
+
+DMG 输出到 `SuperClipboard/dist/`。脚本根据源文件和安装包校验值缓存成功结果；同一版本重试上传时自动复用，不重复构建和测试。源文件有变化则重新验证和打包。只打包暂不上传可加 `--prepare-only`。运行中断后重新执行同一命令即可继续；已正式发布的版本不可覆盖。构建使用临时签名，不包含 Apple 公证流程。
 
 ## 开源依赖
 

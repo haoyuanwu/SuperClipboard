@@ -36,11 +36,45 @@ struct NotebookStoreTests {
                 sourceAppName: "Notebook Tests", sourceBundleID: nil, createdAt: Date(),
                 lastCopiedAt: Date(), copyCount: 1, isPinned: false)
         }
-        let records = [entry(.text, text: "Notebook test", payload: "text.rtf"),
+        var records = [entry(.text, text: "Notebook test", payload: "text.rtf"),
                        entry(.image, paths: [originals.appendingPathComponent("deleted.png").path], payload: "image.png"),
                        entry(.file, paths: [file.path]), entry(.video, paths: [video.path], thumbnail: "thumb.png")]
+        let now = Date()
+        for index in records.indices {
+            records[index].createdAt = now.addingTimeInterval(Double(-index * 60))
+            records[index].lastCopiedAt = now.addingTimeInterval(Double(index * 60))
+        }
         try JSONEncoder().encode(records).write(to: history.appendingPathComponent("history.json"))
         let store = ClipboardStore(storageDirectory: history, defaults: defaults, pasteboard: pasteboard, observesPasteboard: false)
+        precondition(store.sortOrder == .recent, "Default sorting must be chronological")
+        precondition(ClipboardSortOrder(storedValue: "最近复制") == .recent)
+        precondition(ClipboardSortOrder(storedValue: "复制次数") == .frequency)
+        precondition(store.sortedEntries.map(\.id) == records.map(\.id), "Time sorting must use first creation, not last copy")
+        precondition(store.copy(records[3]))
+        precondition(store.sortedEntries.map(\.id) == records.map(\.id), "Copying must not change first-time order")
+        store.sortOrder = .frequency
+        var session = ClipboardListSession()
+        session.begin(with: store.sortedEntries)
+        let openingOrder = session.orderedIDs
+        for _ in 0..<3 { precondition(store.copy(records[2])) }
+        let live = session.entries(from: store.sortedEntries)
+        precondition(live.map(\.id) == openingOrder, "An open list must not jump when copy counts change")
+        precondition(live.first { $0.id == records[2].id }?.copyCount == 4, "Displayed counts must stay current")
+        precondition(store.sortedEntries.first?.id == records[2].id)
+        session.begin(with: store.sortedEntries)
+        precondition(session.orderedIDs.first == records[2].id, "Reopening must apply the latest sorting")
+        var incoming = records[0]
+        incoming.id = UUID()
+        let appended = session.entries(from: [incoming] + store.sortedEntries)
+        precondition(appended.last?.id == incoming.id, "New content must not shuffle existing rows")
+        session.includeNewEntries(from: [incoming] + store.sortedEntries)
+        var another = incoming
+        another.id = UUID()
+        session.includeNewEntries(from: [another, incoming] + store.sortedEntries)
+        let updatedNewItems = session.entries(from: [incoming, another] + store.sortedEntries)
+        precondition(updatedNewItems.suffix(2).map(\.id) == [incoming.id, another.id], "Newly added rows must keep their positions after later copies")
+        precondition(session.entries(from: []).isEmpty, "Deleted items must not remain in the snapshot")
+        store.sortOrder = .recent
         for record in records {
             store.addToNotebook(record)
             try await finish(store)
@@ -58,8 +92,12 @@ struct NotebookStoreTests {
             case .text:
                 precondition(pasteboard.string(forType: .string) == "Notebook test")
                 precondition(store.richText(for: record)?.string == "Notebook test")
+                let preview = await store.loadListPreview(for: record, request: store.listPreviewRequest(for: record))
+                precondition(preview?.lightText?.string == "Notebook test")
             case .image:
                 precondition(store.thumbnail(for: record) != nil)
+                let preview = await store.loadListPreview(for: record, request: store.listPreviewRequest(for: record))
+                precondition(preview?.image != nil)
             case .file, .video:
                 precondition(fm.fileExists(atPath: record.filePaths[0]))
                 precondition(!record.filePaths[0].hasPrefix(originals.path))
@@ -67,6 +105,16 @@ struct NotebookStoreTests {
         }
         let restarted = ClipboardStore(storageDirectory: history, defaults: defaults, pasteboard: pasteboard, observesPasteboard: false)
         precondition(restarted.notebookEntries.count == 4, "Notebook must survive app restart")
+        restarted.sortOrder = .frequency
+        _ = restarted.sortedNotebookEntries
+        let copied = restarted.notebookEntries.first { $0.kind == .text }!
+        precondition(restarted.copy(copied) && restarted.copy(copied))
+        precondition(restarted.sortedNotebookEntries.first?.id == copied.id, "Copy counts must invalidate cached sorting")
+        let pinned = restarted.notebookEntries.first { $0.kind == .file }!
+        restarted.togglePin(pinned)
+        precondition(restarted.sortedNotebookEntries.first?.id == pinned.id, "Pinning must invalidate cached sorting")
+        restarted.togglePin(pinned)
+        precondition(restarted.sortedNotebookEntries.first?.id == copied.id)
         let old = restarted.notebookDirectory
         let destination = root.appendingPathComponent("Custom Notebook")
         restarted.changeNotebookDirectory(to: destination)
