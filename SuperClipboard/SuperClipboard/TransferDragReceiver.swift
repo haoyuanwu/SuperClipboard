@@ -45,6 +45,9 @@ final class TransferDragReceiver {
         self.open = open
         guard globalMonitor == nil && localMonitor == nil else { return }
         policy.begin(changeCount: pasteboard.changeCount)
+        // Register the native destination/window before the first drag begins.
+        // Creating the window during tracking can miss the initial enter/drop.
+        _ = makePanel().windowNumber
         let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event.type) }
@@ -86,6 +89,9 @@ final class TransferDragReceiver {
     private func refresh() {
         let down = (NSEvent.pressedMouseButtons & 1) != 0
         guard down else { finishAfterRelease(); return }
+        // Once AppKit has entered the destination, let its session own completion.
+        // Pasteboard mutation or a late monitor event must not remove the target.
+        if destination?.isTracking == true { return }
         let isTransfer = pasteboard.types?.contains(NSPasteboard.PasteboardType(ClipboardStore.transferDragTypeIdentifier)) == true
         let hasFiles = pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
         guard policy.shouldShow(buttonDown: down, changeCount: pasteboard.changeCount, hasFiles: hasFiles,
@@ -108,7 +114,14 @@ final class TransferDragReceiver {
             do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
             guard let self else { return }
             self.releaseTask = nil
-            if (NSEvent.pressedMouseButtons & 1) == 0 { self.finishGesture() }
+            if (NSEvent.pressedMouseButtons & 1) == 0 {
+                if self.destination?.isTracking == true {
+                    // Native prepare/perform can arrive after the monitor's mouse-up.
+                    // draggingEnded will dismiss cancelled or rejected sessions.
+                    return
+                }
+                self.finishGesture()
+            }
         }
     }
 
@@ -118,7 +131,7 @@ final class TransferDragReceiver {
         releaseTask?.cancel()
         releaseTask = nil
         panel?.orderOut(nil)
-        destination?.highlighted = false
+        destination?.resetTracking()
         policy.consume()
     }
 
@@ -138,7 +151,9 @@ final class TransferDragReceiver {
         let destination = TransferDragDestination(frame: NSRect(origin: .zero, size: frame.size))
         destination.canAccept = { [weak self] in self?.canAccept == true }
         destination.accept = { [weak self] urls in self?.accept(urls) == true }
+        destination.onSessionEnded = { [weak self] in self?.finishGesture() }
         panel.contentView = destination
+        panel.registerForDraggedTypes([.fileURL])
         self.panel = panel
         self.destination = destination
         return panel
@@ -163,9 +178,11 @@ final class TransferDragReceiver {
     }
 }
 
-private final class TransferDragDestination: NSView {
+final class TransferDragDestination: NSView {
     var canAccept: (() -> Bool)?
     var accept: (([URL]) -> Bool)?
+    var onSessionEnded: (() -> Void)?
+    private(set) var isTracking = false
     var highlighted = false {
         didSet {
             guard highlighted != oldValue else { return }
@@ -183,25 +200,49 @@ private final class TransferDragDestination: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func accepts(_ sender: NSDraggingInfo) -> Bool {
-        let board = sender.draggingPasteboard
-        return canAccept?() == true
+    // The SwiftUI hosting view is decorative. Route the complete rectangle to
+    // this registered native destination, including the label and empty space.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(point) ? self : nil
+    }
+
+    func accepts(_ board: NSPasteboard) -> Bool {
+        canAccept?() == true
             && board.types?.contains(NSPasteboard.PasteboardType(ClipboardStore.transferDragTypeIdentifier)) != true
             && board.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        highlighted = accepts(sender)
-        return highlighted ? .copy : []
+    func beginTracking(_ board: NSPasteboard) -> NSDragOperation {
+        isTracking = accepts(board)
+        highlighted = isTracking
+        return isTracking ? .copy : []
     }
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
-    override func draggingExited(_ sender: NSDraggingInfo?) { highlighted = false }
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { accepts(sender) }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard accepts(sender), let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] else { return false }
+
+    func resetTracking() {
+        isTracking = false
         highlighted = false
+    }
+
+    func performDrop(_ board: NSPasteboard) -> Bool {
+        guard accepts(board), let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { resetTracking(); return false }
+        // Consume this session before invoking external code that may close us.
+        resetTracking()
         return accept?(urls) == true
     }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        beginTracking(sender.draggingPasteboard)
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
+    override func draggingExited(_ sender: NSDraggingInfo?) { resetTracking() }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { accepts(sender.draggingPasteboard) }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { performDrop(sender.draggingPasteboard) }
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        resetTracking()
+        onSessionEnded?()
+    }
+
 }
 
 private struct TransferDragHintView: View {
