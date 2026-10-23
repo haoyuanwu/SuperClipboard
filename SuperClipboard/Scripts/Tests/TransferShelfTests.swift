@@ -269,6 +269,40 @@ struct TransferShelfTests {
         try await finish { dropStore.transferBusy }
         precondition(dropStore.transferEntries.count == groupCount,
                      "Neither exported groups nor reordered duplicate file sets may create another entry")
+        // A child exports the staged file itself and retains the shelf identity.
+        let childPath = group.filePaths[0]
+        let childURL = URL(fileURLWithPath: childPath)
+        let childBytes = try Data(contentsOf: childURL)
+        let copiesBeforeChild = dropStore.transferEntries.first { $0.id == group.id }!.copyCount
+        let childProvider = dropStore.transferFileDragProvider(childPath, in: group)!
+        let childExport = await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            childProvider.loadObject(ofClass: NSURL.self) { object, _ in
+                continuation.resume(returning: (object as? NSURL).map { $0 as URL })
+            }
+        }
+        precondition(childExport == childURL && ClipboardStore.isTransferDrag([childProvider]))
+        precondition(dropStore.transferEntries.first { $0.id == group.id }!.copyCount == copiesBeforeChild,
+                     "Dragging one child must not count as copying the group")
+        precondition(dropStore.copyTransferFile(childPath, in: group))
+        let copiedChildren = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL]
+        precondition(copiedChildren == [childURL], "Copy only the selected child as a file URL")
+        precondition(dropStore.transferEntries.first { $0.id == group.id }!.copyCount == copiesBeforeChild + 1)
+        precondition(!dropStore.acceptTransferFileDrop([childProvider]), "Children dragged back must not import duplicates")
+        let unchangedClipboard = pasteboard.changeCount
+        precondition(!dropStore.copyTransferFile(dropFile.path, in: group), "Reject source paths outside the saved group")
+        precondition(dropStore.transferFileDragProvider(dropFile.path, in: group) == nil)
+        precondition(pasteboard.changeCount == unchangedClipboard)
+        try fm.removeItem(at: childURL)
+        precondition(!dropStore.copyTransferFile(childPath, in: group))
+        precondition(dropStore.transferFileDragProvider(childPath, in: group) == nil)
+        precondition(pasteboard.changeCount == unchangedClipboard)
+        precondition(dropStore.contentAvailability(for: group).isPartial, "A missing child must not mark the whole group missing")
+        try childBytes.write(to: childURL)
+        precondition(dropStore.copyTransferFile(childPath, in: group))
+        dropStore.availabilityError = nil
+        dropStore.dragError = nil
+        print("PASS: group-child real file URLs, independent copy/drag, parent count, self-drop rejection and missing/foreign path protection")
+
         // All list surfaces use the same provider, including saved images that
         // no longer have an original, and separate groups in ordinary history.
         let dragRoot = root.appendingPathComponent("HistoryDragTests")
@@ -343,6 +377,66 @@ struct TransferShelfTests {
         precondition(dragStore.entryDragProvider(for: stale) == nil)
         try fm.removeItem(at: documentA)
         precondition(dragStore.entryDragProvider(for: listItems[2]) == nil && dragStore.dragError != nil)
+        // Finder multi-selection and mixed URL/file-representation sources.
+        let batchRoot = root.appendingPathComponent("BatchDropTests")
+        try fm.createDirectory(at: batchRoot, withIntermediateDirectories: true)
+        let batch = ClipboardStore(storageDirectory: batchRoot, defaults: defaults,
+                                    pasteboard: pasteboard, observesPasteboard: false)
+        batch.transferDropSavesHistory = false
+        let urlProvider = NSItemProvider(object: dropFile as NSURL)
+        let dataProvider = NSItemProvider()
+        dataProvider.suggestedName = "second-document.txt"
+        dataProvider.registerFileRepresentation(forTypeIdentifier: UTType.plainText.identifier,
+                                                fileOptions: [], visibility: .all) { completion in
+            completion(secondFile, false, nil)
+            return nil
+        }
+        // Binary files can be supplied by a URL alongside a concrete image type.
+        let pictureProvider = NSItemProvider()
+        pictureProvider.suggestedName = "picture.png"
+        pictureProvider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier,
+                                                   fileOptions: [], visibility: .all) { completion in
+            completion(dropImage, false, nil)
+            return nil
+        }
+        precondition(batch.acceptTransferFileDrop([urlProvider, NSItemProvider(object: dropVideo as NSURL), pictureProvider, dataProvider]))
+        precondition(!batch.acceptTransferFileDrop([urlProvider]), "Concurrent imports must not overwrite a loading group")
+        try await finish { batch.transferDropLoading || batch.transferBusy }
+        precondition(batch.transferError == nil && batch.transferEntries.count == 1)
+        let batchEntry = batch.transferEntries[0]
+        precondition(batchEntry.filePaths.count == 4)
+        let importedPicture = try Data(contentsOf: URL(fileURLWithPath: batchEntry.filePaths[2]))
+        precondition(importedPicture == image)
+        precondition(!batch.acceptTransferFileDrop([batch.transferDragProvider(for: batchEntry)!]))
+        let badProvider = NSItemProvider()
+        badProvider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier,
+                                               fileOptions: [], visibility: .all) { completion in
+            completion(nil, false, CocoaError(.fileReadUnknown))
+            return nil
+        }
+        precondition(batch.acceptTransferFileDrop([urlProvider, badProvider]))
+        try await finish { batch.transferDropLoading || batch.transferBusy }
+        precondition(batch.transferEntries.count == 1 && batch.transferError != nil,
+                     "Failed batches must not import only part of the selected files")
+        batch.transferDropSavesHistory = true
+        let historyFile = NSItemProvider()
+        historyFile.suggestedName = "history.txt"
+        historyFile.registerFileRepresentation(forTypeIdentifier: UTType.plainText.identifier,
+                                               fileOptions: [], visibility: .all) { completion in
+            completion(secondFile, false, nil)
+            return nil
+        }
+        precondition(batch.acceptTransferFileDrop([historyFile]))
+        try await finish { batch.transferDropLoading || batch.transferBusy }
+        precondition(batch.entries.count == 1)
+        let historyURL = batch.entries[0].firstFileURL!
+        precondition(fm.fileExists(atPath: historyURL.path), "Materialized files saved in history must survive staging cleanup")
+        batch.clearTransfer()
+        try await finish { batch.transferBusy }
+        precondition(fm.fileExists(atPath: historyURL.path))
+        batch.clearUnpinned()
+        precondition(!fm.fileExists(atPath: historyURL.path), "App-owned import files are cleaned with their history record")
+        print("PASS: multi-provider mixed file drops, temporary file lifetime, loading guard and atomic failure")
         print("PASS: history/notebook text, RTF, captured image, file/video URLs, independent groups, missing originals and unchanged metadata")
         print("PASS: transfer content, direct text/image/file/video drops, drag providers and previews, optional history, deduplication, original removal, notebook isolation, close deadline, reopen cancellation, interval settings, restart and failure protection")
     }

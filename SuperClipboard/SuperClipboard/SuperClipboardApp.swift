@@ -19,6 +19,8 @@ struct SuperClipboardApp: App {
                 .environmentObject(store)
                 .environmentObject(launchAtLogin)
                 .task { launchAtLogin.configureDefaultIfNeeded() }
+                .modifier(TransferShortcutInstaller(store: store))
+                .modifier(TransferDragReceiverInstaller(store: store))
                 .preferredColorScheme(appearanceMode.colorScheme)
         }
         .defaultSize(width: 440, height: 640)
@@ -40,6 +42,8 @@ struct SuperClipboardApp: App {
                 .environmentObject(store)
                 .environmentObject(launchAtLogin)
                 .task { launchAtLogin.configureDefaultIfNeeded() }
+                .modifier(TransferShortcutInstaller(store: store))
+                .modifier(TransferDragReceiverInstaller(store: store))
                 .preferredColorScheme(appearanceMode.colorScheme)
         } label: {
             Image("MenuBarLogo")

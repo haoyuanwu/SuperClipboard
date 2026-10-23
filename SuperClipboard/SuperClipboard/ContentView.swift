@@ -53,7 +53,6 @@ struct ContentView: View {
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var launchAtLogin: LaunchAtLoginManager
-    @AppStorage("appearanceMode") private var appearanceMode: AppAppearanceMode = .light
     @State private var section: LibrarySection = .all
     @State private var showsNotebook = false
     @State private var selectedItem: ClipboardEntry?
@@ -78,6 +77,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             header
                 .zIndex(1)
+            if !showsNotebook { UnavailableRecordsBar(scope: .history) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: ClipboardLayout.cardGap) {
                     if items.isEmpty {
@@ -124,6 +124,7 @@ struct ContentView: View {
         }
         .modifier(NotebookErrorAlert(isEnabled: activePanel == nil && selectedItem == nil))
         .modifier(EntryDragErrorAlert())
+        .modifier(ContentAvailabilityMonitor())
         .sheet(item: $selectedItem) { item in
             EntryDetail(item: item)
                 .frame(width: 420, height: 420)
@@ -150,14 +151,14 @@ struct ContentView: View {
                 Divider().overlay(ClipboardTheme.border)
                 Group {
                     switch panel {
-                    case .settings: settingsView
+                    case .settings: ClipboardSettingsView()
                     case .about: aboutView
                     }
                 }
             }
             .foregroundStyle(ClipboardTheme.primary)
             .background(ClipboardTheme.pageBackground)
-            .frame(width: 390, height: 480)
+            .frame(width: panel == .settings ? 420 : 390, height: panel == .settings ? 560 : 480)
             .modifier(NotebookErrorAlert())
             .onAppear { launchAtLogin.refresh() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -294,100 +295,6 @@ struct ContentView: View {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { isSearchExpanded = false }
     }
 
-    private var settingsView: some View {
-        Form {
-            Section {
-                Toggle("开机启动", isOn: Binding(
-                    get: { launchAtLogin.isEnabled },
-                    set: { launchAtLogin.setEnabled($0) }
-                ))
-                if launchAtLogin.needsApproval {
-                    Button("在系统设置中允许开机启动") { launchAtLogin.openLoginItemsSettings() }
-                }
-                if let message = launchAtLogin.errorMessage {
-                    Text(message)
-                        .font(.system(size: 12))
-                        .foregroundStyle(ClipboardTheme.dangerText)
-                }
-            } header: {
-                SettingsSectionTitle(title: "通用", symbol: "power")
-            }
-            Section {
-                Picker("显示模式", selection: $appearanceMode) {
-                    ForEach(AppAppearanceMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-            } header: {
-                SettingsSectionTitle(title: "外观", symbol: "circle.lefthalf.filled")
-            }
-            Section {
-                Picker("最多保留", selection: $store.maxEntries) {
-                    Text("100 条").tag(100)
-                    Text("500 条").tag(500)
-                    Text("1000 条").tag(1000)
-                }
-                Text("重复内容合并计数，置顶记录不会自动清理。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(ClipboardTheme.secondary)
-                Button("清空未置顶记录", role: .destructive) { store.clearUnpinned() }
-                    .foregroundStyle(ClipboardTheme.dangerText)
-            } header: {
-                SettingsSectionTitle(title: "历史记录", symbol: "clock.arrow.circlepath")
-            }
-            Section {
-                Toggle("拖入内容同时保存到历史记录", isOn: $store.transferDropSavesHistory)
-                Text("中转内容独立保存，开启后同时收录到历史记录。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(ClipboardTheme.secondary)
-                HStack(spacing: 6) {
-                    Text("关闭后清空")
-                    Spacer()
-                    TextField("", value: $store.transferClearMinutes, format: .number.grouping(.never))
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 48)
-                        .labelsHidden()
-                        .accessibilityLabel("中转站自动清空时间，分钟")
-                    Text("分钟").fixedSize().foregroundStyle(ClipboardTheme.secondary)
-                    Stepper("自动清空时间", value: $store.transferClearMinutes, in: 1...1440)
-                        .labelsHidden()
-                }
-                Text("支持 1–1440 分钟。重新打开会取消倒计时。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(ClipboardTheme.secondary)
-            } header: {
-                SettingsSectionTitle(title: "悬浮中转", symbol: "tray.full")
-            }
-            Section {
-                Button {
-                    NSWorkspace.shared.open(store.notebookDirectory)
-                } label: {
-                    Label {
-                        Text(store.notebookDirectory.path)
-                            .font(.system(size: 11))
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                    } icon: { Image(systemName: "folder") }
-                }
-                .help("在访达中打开记事本目录")
-                Button(action: store.chooseNotebookDirectory) {
-                    HStack {
-                        Text(store.notebookBusy ? "正在保存或迁移…" : "更改保存位置…")
-                        if store.notebookBusy { ProgressView().controlSize(.small) }
-                    }
-                }
-                .disabled(store.notebookBusy || store.transferBusy)
-                Text("加入时保存独立副本，永久保留；更改位置会迁移已有内容。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(ClipboardTheme.secondary)
-            } header: {
-                SettingsSectionTitle(title: "记事本", symbol: "book.closed")
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle("设置")
-    }
-
     private var aboutView: some View {
         VStack(spacing: 12) {
             Image("AppLogo")
@@ -475,8 +382,20 @@ private struct HistoryCard: View {
     var body: some View {
         let request = store.listPreviewRequest(for: item)
         VStack(alignment: .leading, spacing: 0) {
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if store.contentAvailability(for: item).isMissing {
+                    MissingEntryPlaceholder(item: item)
+                } else {
+                    content
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if store.contentAvailability(for: item).isPartial {
+                Label("部分文件不可用（\(store.contentAvailability(for: item).missing)/\(store.contentAvailability(for: item).total)），可使用剩余文件", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ClipboardTheme.cardSecondary)
+                    .padding(.top, 10)
+            }
             Rectangle()
                 .fill(ClipboardTheme.cardSecondary.opacity(0.12))
                 .frame(height: 0.5)
@@ -780,6 +699,7 @@ struct MenuPopoverView: View {
                 Rectangle().fill(ClipboardTheme.border.opacity(0.6)).frame(height: 1)
             }
 
+            if !showsNotebook { UnavailableRecordsBar(scope: .history) }
             ScrollView {
                 LazyVStack(spacing: ClipboardLayout.cardGap) {
                     ForEach(items) { item in
@@ -816,6 +736,7 @@ struct MenuPopoverView: View {
         .frame(width: 390, height: 520)
         .modifier(NotebookErrorAlert())
         .modifier(EntryDragErrorAlert())
+        .modifier(ContentAvailabilityMonitor())
         .overlay {
             if confirmsQuit {
                 ZStack {
@@ -1051,24 +972,25 @@ private struct EntryContextMenu: View {
     let item: ClipboardEntry
     var body: some View {
         Button("再次复制", systemImage: "doc.on.doc") { store.copy(item) }
+            .disabled(store.contentAvailability(for: item).isMissing)
         if !item.isTransferEntry {
             Button(store.isInTransfer(item) ? "在悬浮中转中显示" : "加入悬浮中转", systemImage: "tray.and.arrow.down") {
                 store.transferWindowDidOpen()
                 store.addToTransfer(item)
                 AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
             }
-            .disabled(store.transferBusy || store.notebookBusy)
+            .disabled(store.transferBusy || store.notebookBusy || store.contentAvailability(for: item).isMissing)
         }
         if !item.isNotebookEntry {
             Button(store.isInNotebook(item) ? "已加入记事本" : "加入记事本", systemImage: "book.closed") {
                 store.addToNotebook(item)
             }
-            .disabled(store.notebookBusy || store.transferBusy || store.isInNotebook(item))
+            .disabled(store.notebookBusy || store.transferBusy || store.isInNotebook(item) || store.contentAvailability(for: item).isMissing)
         }
         if !item.isTransferEntry {
             Button(item.isPinned ? "取消置顶" : "置顶", systemImage: "pin") { store.togglePin(item) }
         }
-        if let url = item.firstFileURL {
+        if let url = item.filePaths.map({ URL(fileURLWithPath: $0) }).first(where: { FileManager.default.isReadableFile(atPath: $0.path) }) {
             Button("在访达中显示", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
         Divider()
@@ -1089,7 +1011,7 @@ private struct EntryDetail: View {
     private var accent: Color { AppIconPalette.color(for: item.sourceBundleID) }
 
     private var currentItem: ClipboardEntry {
-        (item.isNotebookEntry ? store.notebookEntries : store.entries).first { $0.id == item.id } ?? item
+        (item.isTransferEntry ? store.transferEntries : (item.isNotebookEntry ? store.notebookEntries : store.entries)).first { $0.id == item.id } ?? item
     }
 
     var body: some View {
@@ -1121,7 +1043,17 @@ private struct EntryDetail: View {
                 }
                 .padding(16)
                 ScrollView {
-                    detailContent
+                    Group {
+                        if store.contentAvailability(for: currentItem).isMissing {
+                            VStack(alignment: .leading, spacing: 16) {
+                                MissingEntryPlaceholder(item: currentItem)
+                                Button("移除这条失效记录", role: .destructive) {
+                                    store.delete(currentItem)
+                                    dismiss()
+                                }
+                            }
+                        } else { detailContent }
+                    }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
@@ -1163,6 +1095,7 @@ private struct EntryDetail: View {
                     }
                     .buttonStyle(ClipboardControlStyle())
                     .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.7), value: hasCopied)
+                    .disabled(store.contentAvailability(for: currentItem).isMissing)
                     .accessibilityLabel(hasCopied ? "已复制" : (copyFailed ? "复制失败，请检查原文件后重试" : "再次复制"))
                     .help(hasCopied ? "已复制" : (copyFailed ? "复制失败，请检查原文件后重试" : "再次复制"))
                     .task(id: hasCopied) {
@@ -1246,8 +1179,13 @@ private struct EntryDetail: View {
                         .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
-                    .help("在访达中显示")
+                    .disabled(!FileManager.default.isReadableFile(atPath: path))
+                    .help(FileManager.default.isReadableFile(atPath: path) ? "在访达中显示" : "文件已移动、删除或暂时不可访问")
                     .accessibilityLabel("在访达中显示：\(path)")
+                    if !FileManager.default.isReadableFile(atPath: path) {
+                        Label("文件不可用", systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 11)).foregroundStyle(ClipboardTheme.secondary)
+                    }
                 }
                 .padding(.bottom, 12)
             }
@@ -1353,14 +1291,16 @@ private struct VideoSurface: NSViewRepresentable {
 }
 
 struct TransferShelfView: View {
+    @ObservedObject private var shortcut = TransferShortcut.shared
     @EnvironmentObject private var store: ClipboardStore
+    @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var copiedItemID: UUID?
     @State private var copyToken = 0
     @State private var confirmsClear = false
     @State private var isDropTargeted = false
 
-    var body: some View {
+    private var shelfContents: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "tray.full.fill")
@@ -1368,7 +1308,7 @@ struct TransferShelfView: View {
                 Text("中转站").font(.system(size: 13, weight: .semibold))
                 RecordCountBadge(count: store.transferEntries.count)
                 Spacer(minLength: 4)
-                if store.transferBusy {
+                if store.transferBusy || store.transferDropLoading {
                     ProgressView().controlSize(.small)
                         .help("正在保存中转副本")
                 }
@@ -1382,8 +1322,9 @@ struct TransferShelfView: View {
             .padding(.trailing, 12)
             .frame(height: 44)
             .background(WindowDragArea())
-            .modifier(PopoverHeaderGlassSurface(isTransferShelf: true))
+            .background(ClipboardTheme.controlFill.opacity(controlActiveState == .key ? 0.55 : 0.15))
 
+            UnavailableRecordsBar(scope: .transfer)
             ScrollView {
                 LazyVStack(spacing: ClipboardLayout.cardGap) {
                     ForEach(store.transferEntries) { item in
@@ -1404,7 +1345,8 @@ struct TransferShelfView: View {
                 }
             }
             HStack(spacing: 6) {
-                Label("可拖入 / 拖出", systemImage: "arrow.up.and.down")
+                Label(shortcut.enabled ? shortcut.label : "可拖入 / 拖出", systemImage: shortcut.enabled ? "keyboard" : "arrow.up.and.down")
+                    .help("全局快捷键显示中转站；可在设置中修改")
                 Spacer(minLength: 4)
                 Label("关闭后 \(store.transferClearMinutes) 分钟清空", systemImage: "clock")
             }
@@ -1412,10 +1354,14 @@ struct TransferShelfView: View {
             .foregroundStyle(ClipboardTheme.secondary)
             .padding(.horizontal, ClipboardLayout.pageInset)
             .padding(.vertical, 12)
-            .background(ClipboardTheme.shelfChromeFill)
+            .background(ClipboardTheme.controlFill.opacity(controlActiveState == .key ? 0.55 : 0.15))
         }
+    }
+
+    var body: some View {
+        shelfContents
         .foregroundStyle(ClipboardTheme.primary)
-        .modifier(TransferShelfGlassSurface())
+        .modifier(TransferShelfGlassSurface(isFocused: controlActiveState == .key))
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 320, idealWidth: 350, maxWidth: 390, minHeight: 360)
         .overlay {
@@ -1435,19 +1381,27 @@ struct TransferShelfView: View {
         }
         .onDrop(of: TransferShelfDropDelegate.supportedTypes,
                 delegate: TransferShelfDropDelegate(isTargeted: $isDropTargeted,
-                    canAccept: { !store.transferBusy && !store.notebookBusy }, accept: acceptDrop))
+                    canAccept: { !store.transferBusy && !store.transferDropLoading && !store.notebookBusy }, accept: acceptDrop))
         .background {
             AppWindowObserver(role: .transfer, onVisibilityChange: { visible in
+                isDropTargeted = false
                 if visible { store.transferWindowDidOpen() }
             }, onClose: {
+                isDropTargeted = false
                 store.transferWindowDidClose()
             })
             .allowsHitTesting(false)
         }
         .modifier(EntryDragErrorAlert())
+        .modifier(ContentAvailabilityMonitor())
+        .onChange(of: store.transferDropLoading) { _, _ in isDropTargeted = false }
+        .onChange(of: store.transferBusy) { _, _ in isDropTargeted = false }
+        .onChange(of: store.transferEntries.map(\.id)) { _, _ in isDropTargeted = false }
+        .task(id: isDropTargeted) { await resetDropFeedbackAfterRelease() }
         .onAppear { store.transferWindowDidOpen() }
         .onDisappear {
             store.transferWindowDidClose()
+            isDropTargeted = false
             copiedItemID = nil
         }
         .confirmationDialog("清空中转站？", isPresented: $confirmsClear) {
@@ -1471,37 +1425,25 @@ struct TransferShelfView: View {
         }
     }
 
-    private func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard !store.transferBusy, !store.notebookBusy, !providers.isEmpty,
-              !ClipboardStore.isTransferDrag(providers) else { return false }
-        if providers.allSatisfy({ $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) {
-            let group = DispatchGroup()
-            var urls = Array<URL?>(repeating: nil, count: providers.count)
-            for (index, provider) in providers.enumerated() {
-                group.enter()
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                    let url: URL?
-                    switch item {
-                    case let value as URL: url = value
-                    case let value as Data: url = URL(dataRepresentation: value, relativeTo: nil)
-                    case let value as String: url = URL(string: value)
-                    default: url = nil
-                    }
-                    DispatchQueue.main.async {
-                        urls[index] = url?.isFileURL == true ? url : nil
-                        group.leave()
-                    }
-                }
+    private func resetDropFeedbackAfterRelease() async {
+        // A destination can miss dropExited when importing multiple providers.
+        // Release/cancellation feedback must not depend on provider completion.
+        guard isDropTargeted else { return }
+        while !Task.isCancelled {
+            let buttons: Int = NSEvent.pressedMouseButtons
+            if (buttons & 1) == 0 {
+                isDropTargeted = false
+                return
             }
-            group.notify(queue: .main) {
-                if urls.allSatisfy({ $0 != nil }) {
-                    store.addDroppedFilesToTransfer(urls.compactMap { $0 })
-                } else {
-                    store.transferError = "无法读取拖入的文件。"
-                }
-            }
-            return true
+            do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
         }
+    }
+
+    private func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
+        isDropTargeted = false
+        guard !store.transferBusy, !store.notebookBusy, !providers.isEmpty,
+              !store.transferDropLoading, !ClipboardStore.isTransferDrag(providers) else { return false }
+        if store.acceptTransferFileDrop(providers) { return true }
         guard providers.count == 1 else { return false }
         if let identifier = providers[0].registeredTypeIdentifiers.first(where: {
                   UTType($0)?.conforms(to: .image) == true
@@ -1539,7 +1481,7 @@ struct TransferShelfView: View {
 }
 
 private struct TransferShelfDropDelegate: DropDelegate {
-    static let supportedTypes = [UTType.fileURL.identifier, UTType.image.identifier,
+    static let supportedTypes = [UTType.fileURL.identifier, UTType.data.identifier, UTType.image.identifier,
                                  UTType.plainText.identifier, ClipboardStore.transferDragTypeIdentifier]
     @Binding var isTargeted: Bool
     let canAccept: () -> Bool
@@ -1549,12 +1491,16 @@ private struct TransferShelfDropDelegate: DropDelegate {
         canAccept() && !info.hasItemsConforming(to: [ClipboardStore.transferDragTypeIdentifier])
     }
 
-    func dropEntered(info: DropInfo) { isTargeted = validateDrop(info: info) }
+    func dropEntered(info: DropInfo) {
+        isTargeted = (NSEvent.pressedMouseButtons & 1) != 0 && validateDrop(info: info)
+    }
     func dropExited(info: DropInfo) { isTargeted = false }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         let allowed = validateDrop(info: info)
-        isTargeted = allowed
+        // SwiftUI can deliver a final update after performDrop; it must not
+        // re-enable the highlight once the mouse has already been released.
+        isTargeted = allowed && (NSEvent.pressedMouseButtons & 1) != 0
         return DropProposal(operation: allowed ? .copy : .forbidden)
     }
 
@@ -1571,20 +1517,28 @@ private struct TransferShelfCard: View {
     let onCopy: () -> Void
 
     var body: some View {
-        Button(action: onCopy) {
-            PopoverHistoryCard(item: item, isCopied: isCopied, isTranslucent: true)
+        Group {
+            if item.isFileGroup {
+                TransferFileGroupCard(item: item, isCopied: isCopied, onCopy: onCopy)
+            } else {
+                Button(action: onCopy) {
+                    PopoverHistoryCard(item: item, isCopied: isCopied, isTranslucent: true)
+                }
+                .buttonStyle(HistoryCardButtonStyle())
+                .modifier(EntryDragSource(item: item))
+                .help("单击复制，拖到其他应用")
+            }
         }
-        .buttonStyle(HistoryCardButtonStyle())
-        .modifier(EntryDragSource(item: item))
-        .help("单击复制，拖到其他应用")
         .contextMenu { EntryContextMenu(item: item) }
     }
 }
 
-private struct EntryDragSource: ViewModifier {
+struct EntryDragSource: ViewModifier {
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: ClipboardEntry
+    var filePath: String? = nil
+    var filePreview: CGImage? = nil
     @State private var isDragging = false
 
     func body(content: Content) -> some View {
@@ -1593,11 +1547,18 @@ private struct EntryDragSource: ViewModifier {
             .scaleEffect(isDragging && !reduceMotion ? 0.985 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isDragging)
             .onDrag {
-                guard let provider = store.entryDragProvider(for: item) else { return NSItemProvider() }
+                let provider: NSItemProvider?
+                if let filePath { provider = store.transferFileDragProvider(filePath, in: item) }
+                else { provider = store.entryDragProvider(for: item) }
+                guard let provider else { return NSItemProvider() }
                 if #available(macOS 26.0, *) { isDragging = true }
                 return provider
             } preview: {
-                TransferDragPreview(item: item).environmentObject(store)
+                if let filePath {
+                    TransferFileDragPreview(path: filePath, image: filePreview)
+                } else {
+                    TransferDragPreview(item: item).environmentObject(store)
+                }
             }
             .modifier(TransferDragSessionFeedback(
                 onEnd: { _ in isDragging = false },
@@ -1720,5 +1681,133 @@ private struct TransferDragPreview: View {
         }
         .frame(width: 190)
         .padding(12)
+    }
+}
+
+
+private struct MissingEntryPlaceholder: View {
+    let item: ClipboardEntry
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "doc.questionmark")
+                .font(.system(size: 24))
+                .frame(width: 42, height: 46)
+                .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.kind == .text ? "文字内容不可用" : item.title)
+                    .font(.system(size: 13, weight: .medium)).lineLimit(2)
+                Text("内容已移动、删除或暂时无法访问")
+                    .font(.system(size: 11))
+                Text("恢复原文件后可再次使用，也可移除这条记录。")
+                    .font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .foregroundStyle(ClipboardTheme.cardSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct UnavailableRecordsBar: View {
+    @EnvironmentObject private var store: ClipboardStore
+    let scope: CleanupScope
+    @State private var confirmsCleanup = false
+
+    var body: some View {
+        let count = store.unavailableCount(in: scope)
+        // Keep the presenter alive even when the asynchronous scan changes the count.
+        Group {
+            if count > 0 {
+                HStack(spacing: 8) {
+                    Label("\(count) 条失效记录", systemImage: "exclamationmark.triangle")
+                    Spacer(minLength: 0)
+                    Button("快捷清理") {
+                        confirmsCleanup = true
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(store.transferBusy || store.transferDropLoading || store.notebookBusy)
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(ClipboardTheme.secondary)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(ClipboardTheme.controlFill)
+            }
+        }
+        .popover(isPresented: $confirmsCleanup, arrowEdge: .bottom) {
+            CleanupConfirmation(count: count, onCancel: dismissCleanup) {
+                // Dismiss before mutating the collection that owns this presenter.
+                dismissCleanup()
+                Task { @MainActor in
+                    await Task.yield()
+                    store.cleanUnavailable(in: scope)
+                }
+            }
+        }
+        .onDisappear { dismissCleanup() }
+        .onChange(of: count) { _, value in
+            if value == 0 { dismissCleanup() }
+        }
+    }
+
+    private func dismissCleanup() { confirmsCleanup = false }
+}
+
+private struct CleanupConfirmation: View {
+    let count: Int
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+    @FocusState private var cancelIsFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("清理 \(count) 条失效记录？", systemImage: "trash")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer(minLength: 8)
+                ToolbarIconButton(symbol: "xmark", title: "关闭清理确认", size: 28, action: onCancel)
+            }
+            Text("仅移除全部内容不可用且未置顶的记录。部分可用的文件组和记事本会保留。文件可能位于未连接的磁盘，请确认后再清理。")
+                .font(.system(size: 12))
+                .foregroundStyle(ClipboardTheme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Spacer()
+                Button("取消", action: onCancel)
+                    .focused($cancelIsFocused)
+                    .keyboardShortcut(.cancelAction)
+                Button("清理失效记录", role: .destructive, action: onConfirm)
+                    .foregroundStyle(ClipboardTheme.dangerText)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(18)
+        .frame(width: 310)
+        .foregroundStyle(ClipboardTheme.primary)
+        .modifier(PopoverGlassSurface())
+        .onExitCommand(perform: onCancel)
+        .onAppear { cancelIsFocused = true }
+    }
+}
+
+private struct ContentAvailabilityMonitor: ViewModifier {
+    @EnvironmentObject private var store: ClipboardStore
+
+    func body(content: Content) -> some View {
+        content
+            .task {
+                while !Task.isCancelled {
+                    await store.refreshAvailability()
+                    do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                }
+            }
+            .alert("内容不可用", isPresented: Binding(
+                get: { store.availabilityError != nil },
+                set: { if !$0 { store.availabilityError = nil } }
+            )) {
+                Button("好") { store.availabilityError = nil }
+            } message: {
+                Text(store.availabilityError ?? "")
+            }
     }
 }

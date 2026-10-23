@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One glass layer for the panel; its scrolling cards retain opaque content
@@ -88,6 +89,7 @@ struct PopoverHeaderGlassSurface: ViewModifier {
 /// The floating shelf has its own translucent shell. A thin adaptive wash
 /// bounds contrast while leaving the desktop visible through the glass.
 struct TransferShelfGlassSurface: ViewModifier {
+    var isFocused = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.colorScheme) private var colorScheme
@@ -100,18 +102,19 @@ struct TransferShelfGlassSurface: ViewModifier {
                         .fill(ClipboardTheme.pageBackground)
                 } else {
                     ZStack {
-                        if #available(macOS 26.0, *) {
-                            Color.clear
-                                .glassEffect(.clear,
-                                             in: RoundedRectangle(cornerRadius: 18))
+                        if isFocused {
+                            // Force the native blur to stay active while this window is key.
+                            TransferShelfFrostedBackground()
+                        } else if #available(macOS 26.0, *) {
+                            Color.clear.glassEffect(.clear, in: RoundedRectangle(cornerRadius: 18))
                         } else {
-                            RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)
+                            TransferShelfFrostedBackground(material: .underWindowBackground)
                         }
                         RoundedRectangle(cornerRadius: 18)
                             .fill(LinearGradient(
                                 colors: colorScheme == .dark
-                                    ? [.black.opacity(0.35), .black.opacity(0.42)]
-                                    : [.white.opacity(0.38), .white.opacity(0.28)],
+                                    ? [.black.opacity(isFocused ? 0.22 : 0.12), .black.opacity(isFocused ? 0.26 : 0.08)]
+                                    : [.white.opacity(isFocused ? 0.20 : 0.10), .white.opacity(isFocused ? 0.16 : 0.04)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             ))
@@ -134,5 +137,25 @@ struct TransferShelfGlassSurface: ViewModifier {
                     .allowsHitTesting(false)
             }
             .shadow(color: .black.opacity(colorScheme == .dark ? 0.27 : 0.15), radius: 24, x: 0, y: 12)
+    }
+}
+
+/// Native behind-window blur with an explicit active state, independent of app focus.
+private struct TransferShelfFrostedBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .hudWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) { configure(view) }
+
+    private func configure(_ view: NSVisualEffectView) {
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.isEmphasized = true
     }
 }

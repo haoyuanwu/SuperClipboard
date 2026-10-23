@@ -50,6 +50,8 @@ struct ClipboardEntry: Codable, Identifiable {
     var previewAspectRatio: CGFloat? = nil
     var transferFolderName: String? = nil
 
+    var isFileGroup: Bool { (kind == .file || kind == .video) && filePaths.count > 1 }
+
     var isNotebookEntry: Bool { notebookFolderName != nil }
     var isTransferEntry: Bool { transferFolderName != nil }
 
@@ -65,8 +67,21 @@ struct ClipboardEntry: Codable, Identifiable {
     var firstFileURL: URL? { filePaths.first.map { URL(fileURLWithPath: $0) } }
 }
 
+struct EntryAvailability: Equatable, Sendable {
+    var missing = 0
+    var total = 0
+    var isMissing: Bool { total > 0 && missing == total }
+    var isPartial: Bool { missing > 0 && !isMissing }
+}
+
+enum CleanupScope { case history, transfer }
+
 @MainActor
 final class ClipboardStore: ObservableObject {
+    @Published private(set) var availability: [UUID: EntryAvailability] = [:]
+    @Published var availabilityError: String?
+    private var scanningAvailability = false
+
     @Published private(set) var entries: [ClipboardEntry] = [] {
         didSet { sortedHistoryCache = nil }
     }
@@ -78,6 +93,7 @@ final class ClipboardStore: ObservableObject {
     @Published var notebookError: String?
     @Published private(set) var transferEntries: [ClipboardEntry] = []
     @Published private(set) var transferBusy = false
+    @Published private(set) var transferDropLoading = false
     @Published private(set) var transferWindowVisible = false
     @Published private(set) var transferClosedAt: Date?
     @Published var transferError: String?
@@ -336,15 +352,94 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
+    func contentAvailability(for item: ClipboardEntry) -> EntryAvailability {
+        availability[item.id] ?? EntryAvailability()
+    }
+
+    nonisolated private static func inspect(_ item: ClipboardEntry, directory: URL) -> EntryAvailability {
+        let fm = FileManager.default
+        func readable(_ url: URL) -> Bool { fm.isReadableFile(atPath: url.path) }
+        if item.kind == .text {
+            let usable = item.plainText?.isEmpty == false || item.payloadName.map { readable(directory.appendingPathComponent($0)) } == true
+            return EntryAvailability(missing: usable ? 0 : 1, total: 1)
+        }
+        if item.kind == .image, let name = item.payloadName, readable(directory.appendingPathComponent(name)) {
+            return EntryAvailability(missing: 0, total: 1)
+        }
+        let count = max(1, item.filePaths.count)
+        let existing = item.filePaths.filter { fm.isReadableFile(atPath: $0) }.count
+        return EntryAvailability(missing: count - existing, total: count)
+    }
+
+    @discardableResult
+    func checkAvailability(_ item: ClipboardEntry) -> EntryAvailability {
+        let status = Self.inspect(item, directory: storageFolder(for: item))
+        if availability[item.id] != status { availability[item.id] = status }
+        return status
+    }
+
+    func refreshAvailability() async {
+        guard !scanningAvailability else { return }
+        scanningAvailability = true
+        defer { scanningAvailability = false }
+        let snapshots = (entries + transferEntries + notebookEntries).map { ($0, storageFolder(for: $0)) }
+        let result = await Task.detached(priority: .utility) {
+            Dictionary(uniqueKeysWithValues: snapshots.map { ($0.0.id, Self.inspect($0.0, directory: $0.1)) })
+        }.value
+        guard !Task.isCancelled else { return }
+        if availability != result { availability = result }
+    }
+
+    func unavailableCount(in scope: CleanupScope) -> Int {
+        let items = scope == .history ? entries : transferEntries
+        return items.filter { !$0.isPinned && contentAvailability(for: $0).isMissing }.count
+    }
+
+    func cleanUnavailable(in scope: CleanupScope) {
+        guard !transferBusy, !transferDropLoading, !notebookBusy else { return }
+        availabilityError = nil
+        let items = scope == .history ? entries : transferEntries
+        // Recheck immediately: a disconnected disk may have become available again.
+        let removed = items.filter { !$0.isPinned && checkAvailability($0).isMissing }
+        guard !removed.isEmpty else { return }
+        let ids = Set(removed.map(\.id))
+        if scope == .history {
+            let remaining = entries.filter { !ids.contains($0.id) }
+            do {
+                try JSONEncoder().encode(remaining).write(to: folder.appendingPathComponent("history.json"), options: .atomic)
+                entries = remaining
+                for item in removed { removeFiles(for: item) }
+            } catch { availabilityError = "清理失败，记录已保留：\(error.localizedDescription)"; return }
+        } else {
+            guard !transferLoadFailed else { return }
+            let previous = transferEntries
+            transferEntries.removeAll { ids.contains($0.id) }
+            do { try writeTransferState() }
+            catch {
+                transferEntries = previous
+                availabilityError = "清理失败，记录已保留：\(error.localizedDescription)"
+                return
+            }
+            deleteTransferFiles(for: removed)
+        }
+        availability = availability.filter { !ids.contains($0.key) }
+    }
+
     @discardableResult
     func copy(_ item: ClipboardEntry) -> Bool {
+        guard !checkAvailability(item).isMissing else {
+            availabilityError = "内容文件已被移动、删除或暂时无法访问，剪贴板内容未更改。"
+            return false
+        }
         switch item.kind {
         case .text:
+            let text = item.plainText ?? richText(for: item)?.string ?? ""
+            guard !text.isEmpty else { return false }
             pasteboard.clearContents()
             if let name = item.payloadName, let data = try? Data(contentsOf: storageFolder(for: item).appendingPathComponent(name)) {
                 pasteboard.setData(data, forType: .rtf)
             }
-            guard pasteboard.setString(item.plainText ?? "", forType: .string) else { return false }
+            guard pasteboard.setString(text, forType: .string) else { return false }
         case .image:
             if let name = item.payloadName,
                let data = try? Data(contentsOf: storageFolder(for: item).appendingPathComponent(name)),
@@ -362,11 +457,16 @@ final class ClipboardStore: ObservableObject {
             }
             return false
         case .file, .video:
-            let urls = item.filePaths.map { URL(fileURLWithPath: $0) }
-            guard !urls.isEmpty, urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return false }
+            let urls = item.filePaths.map { URL(fileURLWithPath: $0) }.filter { FileManager.default.isReadableFile(atPath: $0.path) }
+            guard !urls.isEmpty else { return false }
             pasteboard.clearContents()
             guard pasteboard.writeObjects(urls as [NSURL]) else { return false }
         }
+        recordCopy(of: item)
+        return true
+    }
+
+    private func recordCopy(of item: ClipboardEntry) {
         lastChangeCount = pasteboard.changeCount
         if item.isTransferEntry, let index = transferEntries.firstIndex(where: { $0.id == item.id }) {
             transferEntries[index].copyCount += 1
@@ -381,7 +481,6 @@ final class ClipboardStore: ObservableObject {
             entries[index].lastCopiedAt = Date()
             save()
         }
-        return true
     }
 
     func togglePin(_ item: ClipboardEntry) {
@@ -569,6 +668,11 @@ final class ClipboardStore: ObservableObject {
     func entryDragProvider(for item: ClipboardEntry) -> NSItemProvider? {
         let collection = item.isTransferEntry ? transferEntries : (item.isNotebookEntry ? notebookEntries : entries)
         guard collection.contains(where: { $0.id == item.id }) else { return nil }
+        guard !checkAvailability(item).isMissing else {
+            dragError = "内容文件已被移动、删除或暂时无法访问。可恢复原文件，或清理失效记录。"
+            return nil
+        }
+        let paths = item.filePaths.filter { FileManager.default.isReadableFile(atPath: $0) }
         func providerForOrigin(_ provider: NSItemProvider) -> NSItemProvider {
             item.isTransferEntry ? markTransferDrag(provider, item: item) : provider
         }
@@ -593,9 +697,9 @@ final class ClipboardStore: ObservableObject {
                FileManager.default.fileExists(atPath: storageFolder(for: item).appendingPathComponent(name).path) {
                 // Captured image bytes remain valid after the original is removed.
                 url = storageFolder(for: item).appendingPathComponent(name)
-            } else if item.filePaths.count == 1, let first = item.firstFileURL {
-                url = first
-            } else if item.filePaths.count > 1 {
+            } else if paths.count == 1 {
+                url = URL(fileURLWithPath: paths[0])
+            } else if paths.count > 1 {
                 do { url = try transferDragFolder(for: item) }
                 catch {
                     dragError = "无法准备拖出的文件：\(error.localizedDescription)"
@@ -622,6 +726,40 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
+    /// Resolve against the current group, never a stale or caller-provided path.
+    private func transferFileURL(_ path: String, in group: ClipboardEntry) -> URL? {
+        guard let current = transferEntries.first(where: { $0.id == group.id }),
+              current.isFileGroup, current.filePaths.contains(path) else { return nil }
+        guard FileManager.default.isReadableFile(atPath: path) else {
+            _ = checkAvailability(current)
+            return nil
+        }
+        return URL(fileURLWithPath: path)
+    }
+
+    @discardableResult
+    func copyTransferFile(_ path: String, in group: ClipboardEntry) -> Bool {
+        guard let url = transferFileURL(path, in: group) else {
+            availabilityError = "这个文件已被移除或暂时无法访问，剪贴板内容未更改。"
+            return false
+        }
+        pasteboard.clearContents()
+        guard pasteboard.writeObjects([url as NSURL]) else { return false }
+        recordCopy(of: group)
+        return true
+    }
+
+    func transferFileDragProvider(_ path: String, in group: ClipboardEntry) -> NSItemProvider? {
+        guard let url = transferFileURL(path, in: group) else {
+            dragError = "这个文件已被移除或暂时无法访问，无法拖出。"
+            return nil
+        }
+        let provider = NSItemProvider(object: url as NSURL)
+        provider.suggestedName = url.lastPathComponent
+        // The child remains part of this shelf: dragging it back is not an import.
+        return markTransferDrag(provider, item: group)
+    }
+
     private func transferDragFolder(for item: ClipboardEntry) throws -> URL {
         let fm = FileManager.default
         let directory = item.isTransferEntry || item.isNotebookEntry
@@ -629,10 +767,10 @@ final class ClipboardStore: ObservableObject {
             : fm.temporaryDirectory.appendingPathComponent("SuperClipboard-DragExports", isDirectory: true)
                 .appendingPathComponent(item.id.uuidString, isDirectory: true)
         let output = directory.appendingPathComponent("拖出文件", isDirectory: true)
-        if fm.fileExists(atPath: output.path) { return output }
+        if fm.fileExists(atPath: output.path) { try fm.removeItem(at: output) }
         try fm.createDirectory(at: output, withIntermediateDirectories: true)
         do {
-            for (index, path) in item.filePaths.enumerated() {
+            for (index, path) in item.filePaths.filter({ fm.isReadableFile(atPath: $0) }).enumerated() {
                 let source = URL(fileURLWithPath: path)
                 let name = source.lastPathComponent
                 let target = output.appendingPathComponent(
@@ -645,6 +783,80 @@ final class ClipboardStore: ObservableObject {
             throw error
         }
         return output
+    }
+
+    /// Resolve every provider before importing the group. Temporary representations
+    /// are copied inside their callbacks, before the system removes them.
+    func acceptTransferFileDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !transferBusy, !transferDropLoading, !notebookBusy, !providers.isEmpty,
+              !Self.isTransferDrag(providers) else { return false }
+        let types = providers.map { provider -> String? in
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) { return UTType.fileURL.identifier }
+            return provider.registeredTypeIdentifiers.first { identifier in
+                guard let type = UTType(identifier) else { return false }
+                if type.conforms(to: .text), URL(fileURLWithPath: provider.suggestedName ?? "").pathExtension.isEmpty { return false }
+                return type.conforms(to: .data) || type.conforms(to: .content)
+            }
+        }
+        guard types.allSatisfy({ $0 != nil }) else { return false }
+        transferDropLoading = true
+        transferError = nil
+        let staging = folder.appendingPathComponent("DropImports", isDirectory: true).appendingPathComponent(UUID().uuidString)
+        Task {
+            defer {
+                transferDropLoading = false
+                if !entries.contains(where: { $0.filePaths.contains(where: { $0.hasPrefix(staging.path + "/") }) }) {
+                    try? FileManager.default.removeItem(at: staging)
+                }
+            }
+            do {
+                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+                var urls: [URL] = []
+                for (index, provider) in providers.enumerated() {
+                    let type = types[index]!
+                    let loaded: [URL] = try await withCheckedThrowingContinuation { continuation in
+                        if type == UTType.fileURL.identifier {
+                            provider.loadItem(forTypeIdentifier: type, options: nil) { value, error in
+                                if let error { continuation.resume(throwing: error); return }
+                                let values = (value as? [Any]) ?? value.map { [$0] } ?? []
+                                let urls = values.compactMap { value -> URL? in
+                                    if let url = value as? URL { return url.isFileURL ? url : nil }
+                                    if let data = value as? Data, let url = URL(dataRepresentation: data, relativeTo: nil), url.isFileURL { return url }
+                                    if let string = value as? String, let url = URL(string: string), url.isFileURL { return url }
+                                    return nil
+                                }
+                                guard !urls.isEmpty, urls.count == values.count else {
+                                    continuation.resume(throwing: CocoaError(.fileReadCorruptFile)); return
+                                }
+                                continuation.resume(returning: urls)
+                            }
+                        } else {
+                            let directory = staging.appendingPathComponent(String(index))
+                            let suggestedName = provider.suggestedName
+                            provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
+                                do {
+                                    if let error { throw error }
+                                    guard let url else { throw CocoaError(.fileReadUnknown) }
+                                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                                    var name = URL(fileURLWithPath: suggestedName ?? url.lastPathComponent).lastPathComponent
+                                    if URL(fileURLWithPath: name).pathExtension.isEmpty,
+                                       let ext = UTType(type)?.preferredFilenameExtension { name += "." + ext }
+                                    let destination = directory.appendingPathComponent(name)
+                                    try FileManager.default.copyItem(at: url, to: destination)
+                                    continuation.resume(returning: [destination])
+                                } catch { continuation.resume(throwing: error) }
+                            }
+                        }
+                    }
+                    urls.append(contentsOf: loaded)
+                }
+                addDroppedFilesToTransfer(urls)
+                while transferBusy { try await Task.sleep(for: .milliseconds(10)) }
+            } catch {
+                transferError = "无法读取拖入的文件：\(error.localizedDescription)"
+            }
+        }
+        return true
     }
 
     func addDroppedFilesToTransfer(_ urls: [URL]) {
@@ -890,7 +1102,8 @@ final class ClipboardStore: ObservableObject {
             if let thumbnail { imageURLs.append(directory.appendingPathComponent(thumbnail)) }
             if item.kind == .image, let url = item.firstFileURL, !imageURLs.contains(url) { imageURLs.append(url) }
         }
-        let key = "\(directory.path)|\(item.id)|\(previewRevisions[item.id, default: 0])|\(item.payloadName ?? "")|\(item.thumbnailName ?? "")"
+        let state = availability[item.id, default: EntryAvailability()]
+        let key = "\(state.missing)/\(state.total)|\(directory.path)|\(item.id)|\(previewRevisions[item.id, default: 0])|\(item.payloadName ?? "")|\(item.thumbnailName ?? "")"
         return ClipboardPreviewRequest(key: key,
             richTextURL: item.kind == .text ? item.payloadName.map { directory.appendingPathComponent($0) } : nil,
             imageURLs: imageURLs)
@@ -991,6 +1204,15 @@ final class ClipboardStore: ObservableObject {
         guard !item.isNotebookEntry, !item.isTransferEntry,
               !archivingHistoryIDs.contains(item.id), !transferSourceIDs.contains(item.id) else { return }
         previewRevisions.removeValue(forKey: item.id)
+        let imports = folder.appendingPathComponent("DropImports").path + "/"
+        for path in item.filePaths where path.hasPrefix(imports) {
+            let relative = String(path.dropFirst(imports.count))
+            guard let directory = relative.split(separator: "/").first else { continue }
+            let destination = folder.appendingPathComponent("DropImports").appendingPathComponent(String(directory))
+            if !entries.contains(where: { $0.id != item.id && $0.filePaths.contains(where: { $0.hasPrefix(destination.path + "/") }) }) {
+                try? FileManager.default.removeItem(at: destination)
+            }
+        }
         let fallbackVideoThumbnail = item.kind == .video ? "\(item.id.uuidString)-thumbnail.png" : nil
         for name in [item.payloadName, item.thumbnailName, fallbackVideoThumbnail].compactMap({ $0 }) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
