@@ -81,6 +81,7 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var transferWindowVisible = false
     @Published private(set) var transferClosedAt: Date?
     @Published var transferError: String?
+    @Published var dragError: String?
     @Published var transferDropSavesHistory = false {
         didSet { defaults.set(transferDropSavesHistory, forKey: "transferDropSavesHistory") }
     }
@@ -562,6 +563,15 @@ final class ClipboardStore: ObservableObject {
 
     func transferDragProvider(for item: ClipboardEntry) -> NSItemProvider? {
         guard item.isTransferEntry, transferEntries.contains(where: { $0.id == item.id }) else { return nil }
+        return entryDragProvider(for: item)
+    }
+
+    func entryDragProvider(for item: ClipboardEntry) -> NSItemProvider? {
+        let collection = item.isTransferEntry ? transferEntries : (item.isNotebookEntry ? notebookEntries : entries)
+        guard collection.contains(where: { $0.id == item.id }) else { return nil }
+        func providerForOrigin(_ provider: NSItemProvider) -> NSItemProvider {
+            item.isTransferEntry ? markTransferDrag(provider, item: item) : provider
+        }
         switch item.kind {
         case .text:
             guard let text = item.plainText, !text.isEmpty else { return nil }
@@ -576,19 +586,29 @@ final class ClipboardStore: ObservableObject {
                     }
                 }
             }
-            return markTransferDrag(provider, item: item)
+            return providerForOrigin(provider)
         case .image, .file, .video:
             let url: URL
-            if item.filePaths.count == 1, let first = item.firstFileURL {
+            if item.kind == .image, let name = item.payloadName,
+               FileManager.default.fileExists(atPath: storageFolder(for: item).appendingPathComponent(name).path) {
+                // Captured image bytes remain valid after the original is removed.
+                url = storageFolder(for: item).appendingPathComponent(name)
+            } else if item.filePaths.count == 1, let first = item.firstFileURL {
                 url = first
             } else if item.filePaths.count > 1 {
                 do { url = try transferDragFolder(for: item) }
                 catch {
-                    transferError = "无法准备拖出的文件：\(error.localizedDescription)"
+                    dragError = "无法准备拖出的文件：\(error.localizedDescription)"
                     return nil
                 }
-            } else { return nil }
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            } else {
+                dragError = "这条记录没有可拖出的文件。"
+                return nil
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                dragError = "原文件已被移动或删除，无法拖出。"
+                return nil
+            }
             let provider = NSItemProvider(object: url as NSURL)
             provider.suggestedName = url.lastPathComponent
             if item.kind == .image, let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) {
@@ -598,13 +618,17 @@ final class ClipboardStore: ObservableObject {
                     return nil
                 }
             }
-            return markTransferDrag(provider, item: item)
+            return providerForOrigin(provider)
         }
     }
 
     private func transferDragFolder(for item: ClipboardEntry) throws -> URL {
         let fm = FileManager.default
-        let output = storageFolder(for: item).appendingPathComponent("拖出文件", isDirectory: true)
+        let directory = item.isTransferEntry || item.isNotebookEntry
+            ? storageFolder(for: item)
+            : fm.temporaryDirectory.appendingPathComponent("SuperClipboard-DragExports", isDirectory: true)
+                .appendingPathComponent(item.id.uuidString, isDirectory: true)
+        let output = directory.appendingPathComponent("拖出文件", isDirectory: true)
         if fm.fileExists(atPath: output.path) { return output }
         try fm.createDirectory(at: output, withIntermediateDirectories: true)
         do {

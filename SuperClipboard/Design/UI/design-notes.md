@@ -18,7 +18,7 @@ The skills are installed in the project's `skills/` directory and in `~/.codex/s
 | --- | --- |
 | List outer inset | 16 pt |
 | Card inset | 16 pt |
-| Card gap | 12 pt |
+| Card gap | 14 pt |
 | Card radius | 16 pt |
 | Inner content radius | 12 pt |
 | Toolbar utility target | 32 pt |
@@ -73,3 +73,16 @@ Contrast results apply to app-owned colors. User-provided rich-text colors and b
 - The status bar popover keeps its 390 × 520 pt frame. Search and window actions occupy the first glass row; history/notebook modes and the visible count occupy a second row. The selected mode uses a distinct surface and a short spring transition.
 - Category labels use neutral foregrounds on tinted controls. The updated contrast check requires 4.5:1 for these labels and passes 188/188 measured pairs across light and dark appearances.
 - Main window screenshots were inspected at actual size with search both collapsed and expanded. The visible popover states still need a live screenshot check in the menu bar surface.
+
+## Overall UI refinement — 2026-10-23
+
+Applied `ui-ux-pro-max` to the macOS SwiftUI product. The initial design-system search returned a web-oriented product-demo pattern; it was rejected for this desktop utility. The narrower glassmorphism style result and SwiftUI Form guidance support the retained native font, SF Symbols, glass shells and grouped settings. Mobile touch-size and viewport rules do not substitute for desktop pointer dimensions.
+
+- Main toolbar retains its compact 420–460 pt width. Title/count share a hierarchy; settings and About are in a labeled More menu. The title row is 52 pt, filters remain 42 pt.
+- The 390 × 520 pt status panel puts history/notebook navigation and utility groups first, then a full-width search field and count. Quit remains a distinct power button with its existing glass confirmation.
+- List rhythm uses 16 pt outer/card insets and a 14 pt gap. A subtle divider separates content from metadata. File cards have a 44 pt icon tile; list media previews are capped at 176 pt. Original rich-text formatting remains preserved.
+- Settings retain native grouped Form controls, with symbolled section headers, shorter explanations, a consistent close target and a 480 pt scrollable sheet. About shares the typography hierarchy.
+- Shelf header/footer use bounded adaptive readability surfaces; the main shelf retains its translucent shell. Footer explains drag in/out and delayed clearing together.
+- Shared hover/press feedback is restrained (card press 0.985, hover 1.003); keyboard focus and Reduce Motion remain supported. The opaque button-style backing was removed so shelf cards keep their transparency.
+
+Validation: isolated fixture app with a private clipboard and temporary storage reviewed for main, expanded search, status panel, quit/cancel, grouped settings and shelf in light/dark mode. No user records were used. Numeric contrast report includes shelf chrome and selected modes; it does not claim fixed contrast for arbitrary system-rendered glass or copied source formatting. Drag/import regression and lifecycle checks pass. Full VoiceOver operation and multi-display drag are outside this visual refinement pass.

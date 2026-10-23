@@ -10,8 +10,8 @@
 
 | 安装包 | 适用设备 |
 | --- | --- |
-| `SuperClipboard-1.2.0-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
-| `SuperClipboard-1.2.0-x86_64.dmg` | Intel Mac |
+| `SuperClipboard-1.3.0-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
+| `SuperClipboard-1.3.0-x86_64.dmg` | Intel Mac |
 
 系统要求：macOS 14 或更高版本。打开 DMG，将 SuperClipboard 拖入 Applications，再从“应用程序”启动。应用默认尝试注册开机启动，可以在设置中关闭；系统要求批准时，请前往“系统设置 → 通用 → 登录项”。
 
@@ -37,6 +37,8 @@
 详细操作及限制见 [功能介绍](SuperClipboard/docs/FEATURES.zh-CN.md)，版本变更见 [更新记录](CHANGELOG.md)。
 
 ## 构建
+
+跨会话和 AI 协作约定见 [AGENTS.md](AGENTS.md)，完整发布与重试方法见 [发布指南](SuperClipboard/docs/RELEASING.zh-CN.md)。
 
 使用 Xcode 27 或更高版本打开 `SuperClipboard/SuperClipboard.xcodeproj`。项目使用 SwiftUI、AppKit、AVKit 和 ServiceManagement；SPM 会解析 MediaToolSwift 2.1.0。
 

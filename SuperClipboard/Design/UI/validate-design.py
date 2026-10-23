@@ -45,6 +45,12 @@ for dark in [false, true] {
         measure("\(mode)/copied-feedback", NSColor(ClipboardTheme.successText), NSColor(ClipboardTheme.successFill), 4.5)
         measure("\(mode)/destructive-action", NSColor(ClipboardTheme.dangerText), page, 4.5)
         for (name, backdrop) in [("black", NSColor.black), ("white", NSColor.white)] {
+            let chrome = compose(NSColor(ClipboardTheme.shelfChromeFill), backdrop)
+            measure("\(mode)/shelf-chrome/\(name)/title", NSColor(ClipboardTheme.primary), chrome, 4.5)
+            measure("\(mode)/shelf-chrome/\(name)/caption", NSColor(ClipboardTheme.secondary), chrome, 4.5)
+            measure("\(mode)/shelf-chrome/\(name)/controls", NSColor(ClipboardTheme.toolbarAccent), chrome, 3)
+            let selected = NSColor(ClipboardTheme.selectedSurface)
+            measure("\(mode)/mode-selected/\(name)", NSColor(ClipboardTheme.primary), selected, 4.5)
             let search = compose(NSColor(ClipboardTheme.popoverSearchFill), backdrop)
             let glassHeader = compose(NSColor(ClipboardTheme.popoverHeaderFill), backdrop)
             measure("\(mode)/glass-search/\(name)/text", NSColor(ClipboardTheme.primary), search, 4.5)

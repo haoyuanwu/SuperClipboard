@@ -1,5 +1,5 @@
 {
-  "measuredPairs": 188,
+  "measuredPairs": 204,
   "passed": true,
   "measurements": [
     {
@@ -46,6 +46,30 @@
     },
     {
       "minimum": 4.5,
+      "name": "light/shelf-chrome/black/title",
+      "passed": true,
+      "ratio": 13.263093324519433
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/shelf-chrome/black/caption",
+      "passed": true,
+      "ratio": 5.187377928667558
+    },
+    {
+      "minimum": 3,
+      "name": "light/shelf-chrome/black/controls",
+      "passed": true,
+      "ratio": 4.573931701423543
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/mode-selected/black",
+      "passed": true,
+      "ratio": 16.63009746465071
+    },
+    {
+      "minimum": 4.5,
       "name": "light/glass-search/black/text",
       "passed": true,
       "ratio": 12.645432722234533
@@ -67,6 +91,30 @@
       "name": "light/glass-header/black/toolbar",
       "passed": true,
       "ratio": 3.389059935746627
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/shelf-chrome/white/title",
+      "passed": true,
+      "ratio": 16.63009746465071
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/shelf-chrome/white/caption",
+      "passed": true,
+      "ratio": 6.504259483738885
+    },
+    {
+      "minimum": 3,
+      "name": "light/shelf-chrome/white/controls",
+      "passed": true,
+      "ratio": 5.7350821659912645
+    },
+    {
+      "minimum": 4.5,
+      "name": "light/mode-selected/white",
+      "passed": true,
+      "ratio": 16.63009746465071
     },
     {
       "minimum": 4.5,
@@ -610,6 +658,30 @@
     },
     {
       "minimum": 4.5,
+      "name": "dark/shelf-chrome/black/title",
+      "passed": true,
+      "ratio": 16.050733336878466
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/shelf-chrome/black/caption",
+      "passed": true,
+      "ratio": 9.72510292147476
+    },
+    {
+      "minimum": 3,
+      "name": "dark/shelf-chrome/black/controls",
+      "passed": true,
+      "ratio": 11.707385214295078
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/mode-selected/black",
+      "passed": true,
+      "ratio": 9.714051245905942
+    },
+    {
+      "minimum": 4.5,
       "name": "dark/glass-search/black/text",
       "passed": true,
       "ratio": 16.127510898915727
@@ -631,6 +703,30 @@
       "name": "dark/glass-header/black/toolbar",
       "passed": true,
       "ratio": 12.034526598282348
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/shelf-chrome/white/title",
+      "passed": true,
+      "ratio": 11.754899269547087
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/shelf-chrome/white/caption",
+      "passed": true,
+      "ratio": 7.122266804174961
+    },
+    {
+      "minimum": 3,
+      "name": "dark/shelf-chrome/white/controls",
+      "passed": true,
+      "ratio": 8.574009113192808
+    },
+    {
+      "minimum": 4.5,
+      "name": "dark/mode-selected/white",
+      "passed": true,
+      "ratio": 9.714051245905942
     },
     {
       "minimum": 4.5,

@@ -69,9 +69,12 @@ struct PopoverHeaderGlassSurface: ViewModifier {
                         } else {
                             Rectangle().fill(.ultraThinMaterial)
                         }
+                        if isTransferShelf {
+                            Rectangle().fill(ClipboardTheme.shelfChromeFill)
+                        }
                         LinearGradient(
                             colors: colorScheme == .dark
-                                ? [.white.opacity(isTransferShelf ? 0.08 : 0.13), .white.opacity(0.015)]
+                                ? [.white.opacity(isTransferShelf ? 0.025 : 0.13), .white.opacity(0.015)]
                                 : [.white.opacity(isTransferShelf ? 0.24 : 0.46), .white.opacity(0.04)],
                             startPoint: .top,
                             endPoint: .bottom

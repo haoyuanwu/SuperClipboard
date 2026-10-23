@@ -269,6 +269,81 @@ struct TransferShelfTests {
         try await finish { dropStore.transferBusy }
         precondition(dropStore.transferEntries.count == groupCount,
                      "Neither exported groups nor reordered duplicate file sets may create another entry")
+        // All list surfaces use the same provider, including saved images that
+        // no longer have an original, and separate groups in ordinary history.
+        let dragRoot = root.appendingPathComponent("HistoryDragTests")
+        try fm.createDirectory(at: dragRoot, withIntermediateDirectories: true)
+        let cachedImage = dragRoot.appendingPathComponent("captured.png")
+        try image.write(to: cachedImage)
+        let cachedRTF = dragRoot.appendingPathComponent("captured.rtf")
+        try rich.rtf(from: NSRange(location: 0, length: rich.length), documentAttributes: [:])!.write(to: cachedRTF)
+        let documentA = dragRoot.appendingPathComponent("A.txt")
+        let documentB = dragRoot.appendingPathComponent("B.txt")
+        let movie = dragRoot.appendingPathComponent("clip.mov")
+        try Data("A bytes".utf8).write(to: documentA)
+        try Data("B bytes".utf8).write(to: documentB)
+        try Data("movie bytes".utf8).write(to: movie)
+        let listItems = [entry(.text, text: rich.string, payload: "captured.rtf"),
+                         entry(.image, paths: [dragRoot.appendingPathComponent("removed.png").path], payload: "captured.png"),
+                         entry(.file, paths: [documentA.path]),
+                         entry(.video, paths: [movie.path]),
+                         entry(.file, paths: [documentA.path, documentB.path]),
+                         entry(.file, paths: [documentB.path, movie.path])]
+        try JSONEncoder().encode(listItems).write(to: dragRoot.appendingPathComponent("history.json"))
+        let dragStore = ClipboardStore(storageDirectory: dragRoot, defaults: defaults,
+                                       pasteboard: pasteboard, observesPasteboard: false)
+        let metadataEncoder = JSONEncoder()
+        metadataEncoder.outputFormatting = .sortedKeys
+        let metadataBeforeDrag = try metadataEncoder.encode(dragStore.entries)
+        let richProvider = dragStore.entryDragProvider(for: listItems[0])!
+        precondition(!ClipboardStore.isTransferDrag([richProvider]), "History can still be dragged into the shelf")
+        let plainText = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            richProvider.loadObject(ofClass: NSString.self) { object, _ in
+                continuation.resume(returning: (object as? NSString).map { $0 as String })
+            }
+        }
+        precondition(plainText == rich.string)
+        let richBytes = await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            richProvider.loadDataRepresentation(forTypeIdentifier: UTType.rtf.identifier) { data, _ in
+                continuation.resume(returning: data)
+            }
+        }
+        precondition(richBytes == (try? Data(contentsOf: cachedRTF)))
+        var exportedURLs: [URL] = []
+        for item in listItems.dropFirst() {
+            let provider = dragStore.entryDragProvider(for: item)!
+            precondition(!ClipboardStore.isTransferDrag([provider]))
+            let url = await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+                provider.loadObject(ofClass: NSURL.self) { object, _ in
+                    continuation.resume(returning: (object as? NSURL).map { $0 as URL })
+                }
+            }
+            precondition(url?.isFileURL == true && fm.fileExists(atPath: url!.path))
+            exportedURLs.append(url!)
+        }
+        precondition(exportedURLs[0] == cachedImage, "Image drag must use the saved payload when original is missing")
+        precondition(exportedURLs[1] == documentA && exportedURLs[2] == movie)
+        precondition(exportedURLs[3] != exportedURLs[4], "History file groups need independent export folders")
+        let firstNames = try fm.contentsOfDirectory(atPath: exportedURLs[3].path)
+        let secondNames = try fm.contentsOfDirectory(atPath: exportedURLs[4].path)
+        precondition(Set(firstNames) == Set(["A.txt", "B.txt"]))
+        precondition(Set(secondNames) == Set(["B.txt", "clip.mov"]))
+        for url in exportedURLs.suffix(2) { try fm.removeItem(at: url.deletingLastPathComponent()) }
+        let metadataAfterDrag = try metadataEncoder.encode(dragStore.entries)
+        precondition(metadataAfterDrag == metadataBeforeDrag, "Dragging must not copy, reorder or increment counts")
+        precondition(dragStore.transferEntries.isEmpty)
+        dragStore.addToNotebook(listItems[1])
+        try await finish { dragStore.notebookBusy }
+        let savedImage = dragStore.notebookEntries[0]
+        let savedProvider = dragStore.entryDragProvider(for: savedImage)!
+        precondition(savedProvider.hasItemConformingToTypeIdentifier(UTType.image.identifier))
+        precondition(!ClipboardStore.isTransferDrag([savedProvider]))
+        var stale = listItems[0]
+        stale.id = UUID()
+        precondition(dragStore.entryDragProvider(for: stale) == nil)
+        try fm.removeItem(at: documentA)
+        precondition(dragStore.entryDragProvider(for: listItems[2]) == nil && dragStore.dragError != nil)
+        print("PASS: history/notebook text, RTF, captured image, file/video URLs, independent groups, missing originals and unchanged metadata")
         print("PASS: transfer content, direct text/image/file/video drops, drag providers and previews, optional history, deduplication, original removal, notebook isolation, close deadline, reopen cancellation, interval settings, restart and failure protection")
     }
 

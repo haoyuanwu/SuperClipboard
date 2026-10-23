@@ -32,6 +32,9 @@ enum AppAppearanceMode: String, CaseIterable, Identifiable {
 
 enum ClipboardTheme {
     static let pageBackground = adaptive(light: (1, 1, 1), dark: (0.12, 0.135, 0.16))
+    static let shelfChromeFill = adaptive(light: (1, 1, 1), dark: (0.08, 0.10, 0.14), alpha: 0.90)
+    static let utilityFill = adaptive(light: (1, 1, 1), dark: (1, 1, 1), alpha: 0.035)
+    static let selectedSurface = adaptive(light: (1, 1, 1), dark: (0.22, 0.24, 0.28))
     static let headerBackground = adaptive(light: (0.97, 0.98, 0.99), dark: (0.16, 0.175, 0.20))
     static let primary = adaptive(light: (0.10, 0.12, 0.15), dark: (0.94, 0.95, 0.97))
     static let secondary = adaptive(light: (0.34, 0.37, 0.42), dark: (0.72, 0.75, 0.80))

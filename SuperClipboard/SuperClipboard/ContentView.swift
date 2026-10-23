@@ -93,6 +93,8 @@ struct ContentView: View {
                                 HistoryCard(item: item)
                             }
                             .buttonStyle(HistoryCardButtonStyle())
+                            .modifier(EntryDragSource(item: item))
+                            .help("单击查看，拖到其他应用")
                             .contextMenu { EntryContextMenu(item: item) }
                         }
                     }
@@ -121,6 +123,7 @@ struct ContentView: View {
             notebookSession.includeNewEntries(from: store.notebookEntries)
         }
         .modifier(NotebookErrorAlert(isEnabled: activePanel == nil && selectedItem == nil))
+        .modifier(EntryDragErrorAlert())
         .sheet(item: $selectedItem) { item in
             EntryDetail(item: item)
                 .frame(width: 420, height: 420)
@@ -128,20 +131,23 @@ struct ContentView: View {
         .sheet(item: $activePanel) { panel in
             VStack(spacing: 0) {
                 HStack {
-                    Text(panel == .settings ? "设置" : "关于")
-                        .font(.headline)
-                    Spacer()
-                    Button { activePanel = nil } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(ClipboardTheme.secondary)
+                    HStack(spacing: 10) {
+                        Image(systemName: panel == .settings ? "slider.horizontal.3" : "info.circle")
+                            .foregroundStyle(ClipboardTheme.toolbarAccent)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(panel == .settings ? "设置" : "关于")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text(panel == .settings ? "让剪贴板更合你的习惯" : "随手复制，随时取用")
+                                .font(.system(size: 11))
+                                .foregroundStyle(ClipboardTheme.secondary)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .help("关闭")
+                    Spacer()
+                    ToolbarIconButton(symbol: "xmark", title: "关闭") { activePanel = nil }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
-                Divider()
+                Divider().overlay(ClipboardTheme.border)
                 Group {
                     switch panel {
                     case .settings: settingsView
@@ -151,7 +157,7 @@ struct ContentView: View {
             }
             .foregroundStyle(ClipboardTheme.primary)
             .background(ClipboardTheme.pageBackground)
-            .frame(width: 390, height: 440)
+            .frame(width: 390, height: 480)
             .modifier(NotebookErrorAlert())
             .onAppear { launchAtLogin.refresh() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -183,9 +189,14 @@ struct ContentView: View {
                     .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 9))
                     .transition(.opacity.combined(with: .move(edge: .leading)))
                 } else {
-                    Text(showsNotebook ? "记事本" : "剪贴板")
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(showsNotebook ? "记事本" : "剪贴板")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text(showsNotebook ? "独立保存 · \(visibleItems.count) 条" : "最近收集 · \(visibleItems.count) 条")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ClipboardTheme.secondary)
+                    }
+                    .lineLimit(1)
                     Spacer(minLength: 8)
                     ToolbarIconButton(symbol: "magnifyingglass", title: "展开搜索", size: 30) {
                         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.84)) { isSearchExpanded = true }
@@ -203,12 +214,24 @@ struct ContentView: View {
                     store.transferWindowDidOpen()
                     AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
                 }
-                ToolbarIconButton(symbol: "gearshape", title: "设置", size: 30) { activePanel = .settings }
-                ToolbarIconButton(symbol: "info.circle", title: "关于", size: 30) { activePanel = .about }
+                Menu {
+                    Button("设置…", systemImage: "slider.horizontal.3") { activePanel = .settings }
+                    Button("关于 SuperClipboard", systemImage: "info.circle") { activePanel = .about }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(ClipboardTheme.toolbarAccent)
+                        .frame(width: 30, height: 30)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 30)
+                .help("设置与关于")
+                .accessibilityLabel("设置与关于")
             }
             .padding(.leading, 78)
             .padding(.trailing, 12)
-            .frame(height: 46)
+            .frame(height: 52)
             .background(WindowDragArea())
 
             HStack(spacing: 8) {
@@ -273,7 +296,7 @@ struct ContentView: View {
 
     private var settingsView: some View {
         Form {
-            Section("通用") {
+            Section {
                 Toggle("开机启动", isOn: Binding(
                     get: { launchAtLogin.isEnabled },
                     set: { launchAtLogin.setEnabled($0) }
@@ -286,15 +309,19 @@ struct ContentView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(ClipboardTheme.dangerText)
                 }
+            } header: {
+                SettingsSectionTitle(title: "通用", symbol: "power")
             }
-            Section("外观") {
+            Section {
                 Picker("显示模式", selection: $appearanceMode) {
                     ForEach(AppAppearanceMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
+            } header: {
+                SettingsSectionTitle(title: "外观", symbol: "circle.lefthalf.filled")
             }
-            Section("历史记录") {
+            Section {
                 Picker("最多保留", selection: $store.maxEntries) {
                     Text("100 条").tag(100)
                     Text("500 条").tag(500)
@@ -305,10 +332,12 @@ struct ContentView: View {
                     .foregroundStyle(ClipboardTheme.secondary)
                 Button("清空未置顶记录", role: .destructive) { store.clearUnpinned() }
                     .foregroundStyle(ClipboardTheme.dangerText)
+            } header: {
+                SettingsSectionTitle(title: "历史记录", symbol: "clock.arrow.circlepath")
             }
-            Section("悬浮中转") {
+            Section {
                 Toggle("拖入内容同时保存到历史记录", isOn: $store.transferDropSavesHistory)
-                Text("默认关闭。拖入的图片、视频和文件始终保存独立中转副本；开启后也记入历史记录。")
+                Text("中转内容独立保存，开启后同时收录到历史记录。")
                     .font(.system(size: 12))
                     .foregroundStyle(ClipboardTheme.secondary)
                 HStack(spacing: 6) {
@@ -323,11 +352,13 @@ struct ContentView: View {
                     Stepper("自动清空时间", value: $store.transferClearMinutes, in: 1...1440)
                         .labelsHidden()
                 }
-                Text("默认 10 分钟，支持 1–1440 分钟。重新打开取消倒计时，只清理中转副本。")
+                Text("支持 1–1440 分钟。重新打开会取消倒计时。")
                     .font(.system(size: 12))
                     .foregroundStyle(ClipboardTheme.secondary)
+            } header: {
+                SettingsSectionTitle(title: "悬浮中转", symbol: "tray.full")
             }
-            Section("记事本") {
+            Section {
                 Button {
                     NSWorkspace.shared.open(store.notebookDirectory)
                 } label: {
@@ -349,6 +380,8 @@ struct ContentView: View {
                 Text("加入时保存独立副本，永久保留；更改位置会迁移已有内容。")
                     .font(.system(size: 12))
                     .foregroundStyle(ClipboardTheme.secondary)
+            } header: {
+                SettingsSectionTitle(title: "记事本", symbol: "book.closed")
             }
         }
         .formStyle(.grouped)
@@ -362,7 +395,10 @@ struct ContentView: View {
                 .scaledToFit()
                 .frame(width: 80, height: 80)
                 .accessibilityLabel("SuperClipboard")
-            Text("SuperClipboard").font(.largeTitle.bold())
+            Text("SuperClipboard").font(.system(size: 24, weight: .semibold, design: .rounded))
+            Text("把灵感和资料，留在手边。")
+                .font(.system(size: 13))
+                .foregroundStyle(ClipboardTheme.secondary)
             Text("macOS 剪贴板历史管理 · 版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0")")
                 .foregroundStyle(ClipboardTheme.secondary)
         }
@@ -441,6 +477,10 @@ private struct HistoryCard: View {
         VStack(alignment: .leading, spacing: 0) {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
+            Rectangle()
+                .fill(ClipboardTheme.cardSecondary.opacity(0.12))
+                .frame(height: 0.5)
+                .padding(.top, 12)
             HStack(spacing: 8) {
                 ClipboardTimestamp(date: item.lastCopiedAt)
                     .layoutPriority(1)
@@ -459,7 +499,7 @@ private struct HistoryCard: View {
             .font(.system(size: 12))
             .lineLimit(1)
             .foregroundStyle(ClipboardTheme.cardSecondary)
-            .padding(.top, 12)
+            .padding(.top, 9)
         }
         .padding(ClipboardLayout.cardPadding)
         .foregroundStyle(ClipboardTheme.cardPrimary)
@@ -524,7 +564,7 @@ private struct HistoryCard: View {
                         Image(decorative: image, scale: 1)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, maxHeight: 176)
                             .clipShape(RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
                     } else {
                         mediaPlaceholder(symbol: "photo", ratio: 1)
@@ -541,7 +581,7 @@ private struct HistoryCard: View {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: 176)
                     .clipShape(RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius))
             } else if preview == nil {
                 mediaPlaceholder(symbol: "play.rectangle", ratio: 16.0 / 9.0)
@@ -549,9 +589,19 @@ private struct HistoryCard: View {
                 Text(item.title).font(.system(size: 14))
             }
         case .file:
-            Label(item.title, systemImage: "doc")
-                .font(.system(size: 14))
-                .lineLimit(3)
+            HStack(spacing: 12) {
+                Image(systemName: item.filePaths.count > 1 ? "folder" : "doc")
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(width: 44, height: 48)
+                    .background(ClipboardTheme.cardSecondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(item.title).font(.system(size: 14, weight: .medium)).lineLimit(2)
+                    Text(item.filePaths.count > 1 ? "\(item.filePaths.count) 个文件" : "文件")
+                        .font(.system(size: 11))
+                        .foregroundStyle(ClipboardTheme.cardSecondary)
+                }
+            }
         }
     }
 
@@ -559,6 +609,7 @@ private struct HistoryCard: View {
         RoundedRectangle(cornerRadius: ClipboardLayout.contentRadius)
             .fill(ClipboardTheme.controlFill)
             .aspectRatio(loadedAspectRatio ?? item.previewAspectRatio ?? ratio, contentMode: .fit)
+            .frame(maxHeight: 176)
             .overlay {
                 Image(systemName: symbol)
                     .font(.largeTitle)
@@ -670,41 +721,7 @@ struct MenuPopoverView: View {
     var body: some View {
         let items = visibleItems
         VStack(spacing: 0) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    HStack(spacing: 7) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(ClipboardTheme.secondary)
-                        TextField(text: $search, prompt: Text("搜索记录").foregroundColor(ClipboardTheme.secondary)) { Text("搜索记录") }
-                            .textFieldStyle(.plain)
-                            .accessibilityLabel("搜索记录")
-                            .onExitCommand { search = "" }
-                        if !search.isEmpty {
-                            Button { search = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(ClipboardTheme.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("清空搜索")
-                        }
-                    }
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 10)
-                    .frame(height: 36)
-                    .background(ClipboardTheme.popoverSearchFill, in: RoundedRectangle(cornerRadius: ClipboardLayout.controlRadius))
-
-                    ToolbarIconButton(symbol: "tray.full", title: "悬浮中转") {
-                        store.transferWindowDidOpen()
-                        AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
-                    }
-                    ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口") {
-                        AppWindowCoordinator.showMainWindow { openWindow(id: "main") }
-                    }
-                    ToolbarIconButton(symbol: "power", title: "退出 SuperClipboard") {
-                        confirmsQuit = true
-                    }
-                }
-
+            VStack(spacing: 10) {
                 HStack(spacing: 8) {
                     HStack(spacing: 2) {
                         PopoverModeButton(title: "历史记录", symbol: "clock.arrow.circlepath", isSelected: !showsNotebook) {
@@ -714,18 +731,50 @@ struct MenuPopoverView: View {
                             selectPopoverMode(notebook: true)
                         }
                     }
-                    .padding(2)
-                    .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 10))
-                    Spacer(minLength: 6)
-                    Text("\(items.count) 条")
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .padding(3)
+                    .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 11))
+                    Spacer(minLength: 0)
+                    UtilityGroup {
+                        ToolbarIconButton(symbol: "tray.full", title: "悬浮中转", size: 28) {
+                            store.transferWindowDidOpen()
+                            AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
+                        }
+                        ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口", size: 28) {
+                            AppWindowCoordinator.showMainWindow { openWindow(id: "main") }
+                        }
+                    }
+                    ToolbarIconButton(symbol: "power", title: "退出 SuperClipboard", size: 28) {
+                        confirmsQuit = true
+                    }
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(ClipboardTheme.secondary)
-                        .accessibilityLabel("当前显示 \(items.count) 条记录")
+                    TextField(text: $search, prompt: Text(showsNotebook ? "搜索记事本" : "搜索剪贴板").foregroundColor(ClipboardTheme.secondary)) {
+                        Text(showsNotebook ? "搜索记事本" : "搜索剪贴板")
+                    }
+                    .textFieldStyle(.plain)
+                    .accessibilityLabel(showsNotebook ? "搜索记事本" : "搜索剪贴板")
+                    .onExitCommand { search = "" }
+                    if !search.isEmpty {
+                        ToolbarIconButton(symbol: "xmark.circle.fill", title: "清空搜索", size: 24) { search = "" }
+                    } else {
+                        RecordCountBadge(count: items.count)
+                    }
+                }
+                .font(.system(size: 13))
+                .padding(.horizontal, 11)
+                .frame(height: 36)
+                .background(ClipboardTheme.popoverSearchFill, in: RoundedRectangle(cornerRadius: 11))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11).strokeBorder(ClipboardTheme.border.opacity(0.55), lineWidth: 0.5)
+                        .allowsHitTesting(false)
                 }
             }
             .padding(.horizontal, ClipboardLayout.pageInset)
-            .padding(.top, 10)
-            .padding(.bottom, 9)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
             .modifier(PopoverHeaderGlassSurface())
             .overlay(alignment: .bottom) {
                 Rectangle().fill(ClipboardTheme.border.opacity(0.6)).frame(height: 1)
@@ -743,7 +792,8 @@ struct MenuPopoverView: View {
                             PopoverHistoryCard(item: item, isCopied: copiedItemID == item.id)
                         }
                         .buttonStyle(HistoryCardButtonStyle())
-                        .help("单击复制")
+                        .modifier(EntryDragSource(item: item))
+                        .help("单击复制，拖到其他应用")
                         .contextMenu { EntryContextMenu(item: item) }
                     }
                 }
@@ -765,6 +815,7 @@ struct MenuPopoverView: View {
         .foregroundStyle(ClipboardTheme.primary)
         .frame(width: 390, height: 520)
         .modifier(NotebookErrorAlert())
+        .modifier(EntryDragErrorAlert())
         .overlay {
             if confirmsQuit {
                 ZStack {
@@ -886,8 +937,12 @@ private struct PopoverModeButton: View {
                 .foregroundStyle(isSelected ? ClipboardTheme.primary : ClipboardTheme.secondary)
                 .padding(.horizontal, 10)
                 .frame(height: 27)
-                .background(isSelected ? ClipboardTheme.popoverSearchFill : .clear,
+                .background(isSelected ? ClipboardTheme.selectedSurface : .clear,
                             in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(isSelected ? ClipboardTheme.border : .clear, lineWidth: 0.5)
+                }
         }
         .buttonStyle(ClipboardControlStyle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -1311,9 +1366,7 @@ struct TransferShelfView: View {
                 Image(systemName: "tray.full.fill")
                     .foregroundStyle(ClipboardTheme.toolbarAccent)
                 Text("中转站").font(.system(size: 13, weight: .semibold))
-                Text("\(store.transferEntries.count)")
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(ClipboardTheme.secondary)
+                RecordCountBadge(count: store.transferEntries.count)
                 Spacer(minLength: 4)
                 if store.transferBusy {
                     ProgressView().controlSize(.small)
@@ -1350,13 +1403,16 @@ struct TransferShelfView: View {
                         description: Text("拖入图片、视频、文件或文字，或在记录上右键加入。"))
                 }
             }
-            Label("关闭后 \(store.transferClearMinutes) 分钟清空", systemImage: "clock")
-                .font(.system(size: 11))
-                .foregroundStyle(ClipboardTheme.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(ClipboardTheme.controlFill, in: Capsule())
-                .padding(.bottom, 10)
+            HStack(spacing: 6) {
+                Label("可拖入 / 拖出", systemImage: "arrow.up.and.down")
+                Spacer(minLength: 4)
+                Label("关闭后 \(store.transferClearMinutes) 分钟清空", systemImage: "clock")
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(ClipboardTheme.secondary)
+            .padding(.horizontal, ClipboardLayout.pageInset)
+            .padding(.vertical, 12)
+            .background(ClipboardTheme.shelfChromeFill)
         }
         .foregroundStyle(ClipboardTheme.primary)
         .modifier(TransferShelfGlassSurface())
@@ -1388,6 +1444,7 @@ struct TransferShelfView: View {
             })
             .allowsHitTesting(false)
         }
+        .modifier(EntryDragErrorAlert())
         .onAppear { store.transferWindowDidOpen() }
         .onDisappear {
             store.transferWindowDidClose()
@@ -1509,35 +1566,59 @@ private struct TransferShelfDropDelegate: DropDelegate {
 }
 
 private struct TransferShelfCard: View {
-    @EnvironmentObject private var store: ClipboardStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: ClipboardEntry
     let isCopied: Bool
     let onCopy: () -> Void
-    @State private var isDragging = false
 
     var body: some View {
         Button(action: onCopy) {
             PopoverHistoryCard(item: item, isCopied: isCopied, isTranslucent: true)
         }
         .buttonStyle(HistoryCardButtonStyle())
-        .contentShape(.dragPreview, RoundedRectangle(cornerRadius: ClipboardLayout.cardRadius))
-        .scaleEffect(isDragging && !reduceMotion ? 0.985 : 1)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isDragging)
-        .onDrag {
-            guard let provider = store.transferDragProvider(for: item) else { return NSItemProvider() }
-            if #available(macOS 26.0, *) { isDragging = true }
-            return provider
-        } preview: {
-            TransferDragPreview(item: item).environmentObject(store)
-        }
-        .modifier(TransferDragSessionFeedback(
-            onEnd: { _ in isDragging = false },
-            onTransferCompleted: { isDragging = false }
-        ))
+        .modifier(EntryDragSource(item: item))
         .help("单击复制，拖到其他应用")
         .contextMenu { EntryContextMenu(item: item) }
-        .onDisappear { isDragging = false }
+    }
+}
+
+private struct EntryDragSource: ViewModifier {
+    @EnvironmentObject private var store: ClipboardStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let item: ClipboardEntry
+    @State private var isDragging = false
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(.dragPreview, RoundedRectangle(cornerRadius: ClipboardLayout.cardRadius))
+            .scaleEffect(isDragging && !reduceMotion ? 0.985 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isDragging)
+            .onDrag {
+                guard let provider = store.entryDragProvider(for: item) else { return NSItemProvider() }
+                if #available(macOS 26.0, *) { isDragging = true }
+                return provider
+            } preview: {
+                TransferDragPreview(item: item).environmentObject(store)
+            }
+            .modifier(TransferDragSessionFeedback(
+                onEnd: { _ in isDragging = false },
+                onTransferCompleted: { isDragging = false }
+            ))
+            .onDisappear { isDragging = false }
+    }
+}
+
+private struct EntryDragErrorAlert: ViewModifier {
+    @EnvironmentObject private var store: ClipboardStore
+
+    func body(content: Content) -> some View {
+        content.alert("无法拖出内容", isPresented: Binding(
+            get: { store.dragError != nil },
+            set: { if !$0 { store.dragError = nil } }
+        )) {
+            Button("好") { store.dragError = nil }
+        } message: {
+            Text(store.dragError ?? "")
+        }
     }
 }
 

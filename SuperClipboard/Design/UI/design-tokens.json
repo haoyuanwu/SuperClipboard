@@ -26,7 +26,7 @@
   "spacing": {
     "pageInset": 16,
     "cardPadding": 16,
-    "cardGap": 12
+    "cardGap": 14
   },
   "radius": {
     "card": 16,

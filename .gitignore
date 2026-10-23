@@ -8,3 +8,7 @@ SuperClipboard/skills/
 *.dSYM/
 __pycache__/
 *.pyc
+
+# Project documentation must remain visible even with a global docs ignore.
+!SuperClipboard/docs/
+!SuperClipboard/docs/**
