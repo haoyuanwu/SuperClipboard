@@ -41,3 +41,13 @@ xcrun swiftc -swift-version 5 -default-isolation MainActor \
     Scripts/Tests/TransferDragReceiverTests.swift "$transfer_products/MediaToolSwift.o" "$transfer_products/ObjCExceptionCatcher.o" \
     -o "$transfer_test_dir/drag-receiver-tests"
 "$transfer_test_dir/drag-receiver-tests"
+# The status menu also exercises the actual SwiftUI popover and settings types.
+menu_sources=()
+for menu_source in SuperClipboard/*.swift; do
+    [[ "$menu_source" == "SuperClipboard/SuperClipboardApp.swift" ]] || menu_sources+=("$menu_source")
+done
+xcrun swiftc -swift-version 5 -default-isolation MainActor \
+    "${menu_sources[@]}" -I "$transfer_products" -Xcc "-fmodule-map-file=$transfer_modulemap" \
+    Scripts/Tests/MenuPopoverShortcutTests.swift "$transfer_products/MediaToolSwift.o" "$transfer_products/ObjCExceptionCatcher.o" \
+    -o "$transfer_test_dir/popover-shortcut-tests"
+"$transfer_test_dir/popover-shortcut-tests"

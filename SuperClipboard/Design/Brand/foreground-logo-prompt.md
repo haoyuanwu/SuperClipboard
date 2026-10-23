@@ -1,5 +1,7 @@
 # Transparent colored foreground
 
+> Historical design, replaced by the box-and-card logo. Current assets and usage: `box-logo-assets.md`.
+
 Edited with the built-in image_gen tool. Master: `SuperClipboard-logo-foreground.png`. Used by `MenuBarLogo.imageset` at 18, 36, and 54 pixels, with original rendering to retain color.
 
 The Dock uses `SuperClipboard/SuperClipboardIcon.icon`, a native macOS icon package with an opaque blue gradient beneath the edge-to-edge logo artwork. This replaces the legacy AppIcon selection so macOS can apply its enclosure without an extra fallback tile.

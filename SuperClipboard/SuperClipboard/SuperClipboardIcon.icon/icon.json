@@ -1,15 +1,15 @@
 {
   "fill": {
     "linear-gradient": [
-      "srgb:0.0,0.62,1.0,1.0",
-      "srgb:0.08,0.18,0.96,1.0"
+      "srgb:0.125,0.20,0.26,1.0",
+      "srgb:0.125,0.20,0.26,1.0"
     ]
   },
   "groups": [
     {
       "layers": [
         {
-          "name": "SuperClipboard Logo",
+          "name": "Box and Card Logo",
           "image-name": "Logo.png",
           "glass": false,
           "position": {

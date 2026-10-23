@@ -617,6 +617,7 @@ private struct SourceAppBadge: View {
 struct MenuPopoverView: View {
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.clipboardOpenWindow) private var menuOpenWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var search = ""
     @State private var copiedItemID: UUID?
@@ -656,10 +657,10 @@ struct MenuPopoverView: View {
                     UtilityGroup {
                         ToolbarIconButton(symbol: "tray.full", title: "悬浮中转", size: 28) {
                             store.transferWindowDidOpen()
-                            AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
+                            AppWindowCoordinator.showTransferWindow { (menuOpenWindow ?? openWindow)(id: "transfer") }
                         }
                         ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口", size: 28) {
-                            AppWindowCoordinator.showMainWindow { openWindow(id: "main") }
+                            AppWindowCoordinator.showMainWindow { (menuOpenWindow ?? openWindow)(id: "main") }
                         }
                     }
                     ToolbarIconButton(symbol: "power", title: "退出 SuperClipboard", size: 28) {
@@ -704,10 +705,7 @@ struct MenuPopoverView: View {
                 LazyVStack(spacing: ClipboardLayout.cardGap) {
                     ForEach(items) { item in
                         Button {
-                            if store.copy(item) {
-                                copiedItemID = item.id
-                                copyFeedbackToken += 1
-                            }
+                            copy(item)
                         } label: {
                             PopoverHistoryCard(item: item, isCopied: copiedItemID == item.id)
                         }
@@ -728,6 +726,18 @@ struct MenuPopoverView: View {
                     )
                 }
             }
+        }
+        .background {
+            // Shortcuts are outside LazyVStack so offscreen rows are still reachable.
+            VStack {
+                ForEach(Array(items.prefix(9).enumerated()), id: \.element.id) { index, item in
+                    Button("复制第 \(index + 1) 条") { copy(item) }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                }
+            }
+            .disabled(confirmsQuit)
+            .hidden()
+            .accessibilityHidden(true)
         }
         .allowsHitTesting(!confirmsQuit)
         .accessibilityHidden(confirmsQuit)
@@ -776,6 +786,14 @@ struct MenuPopoverView: View {
             } catch { }
         }
         .onDisappear { copiedItemID = nil; confirmsQuit = false }
+    }
+
+    private func copy(_ item: ClipboardEntry) {
+        guard !confirmsQuit else { return }
+        if store.copy(item) {
+            copiedItemID = item.id
+            copyFeedbackToken += 1
+        }
     }
 
     private func beginHistorySession() {

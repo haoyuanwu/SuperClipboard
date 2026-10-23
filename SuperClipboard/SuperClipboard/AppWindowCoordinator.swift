@@ -61,6 +61,8 @@ enum AppWindowCoordinator {
         }
     }
 
+    static var isPopoverVisible: Bool { popoverWindow?.isVisible == true }
+
     static func showMainWindow(open: () -> Void) {
         popoverWindow?.orderOut(nil)
         setDockVisible(true)

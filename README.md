@@ -10,8 +10,8 @@
 
 | 安装包 | 适用设备 |
 | --- | --- |
-| `SuperClipboard-1.3.1-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
-| `SuperClipboard-1.3.1-x86_64.dmg` | Intel Mac |
+| `SuperClipboard-1.3.2-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
+| `SuperClipboard-1.3.2-x86_64.dmg` | Intel Mac |
 
 系统要求：macOS 14 或更高版本。打开 DMG，将 SuperClipboard 拖入 Applications，再从“应用程序”启动。应用默认尝试注册开机启动，可以在设置中关闭；系统要求批准时，请前往“系统设置 → 通用 → 登录项”。
 

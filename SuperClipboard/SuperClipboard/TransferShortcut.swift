@@ -11,6 +11,8 @@ final class TransferShortcut: ObservableObject {
     @Published private(set) var recording = false
     @Published private(set) var error: String?
     var onTrigger: (() -> Void)?
+    var onStartRecording: (() -> Void)?
+    var permitsTrigger: () -> Bool = { true }
     private let defaults: UserDefaults
     private var key: UInt32
     private var modifiers: UInt32
@@ -34,7 +36,7 @@ final class TransferShortcut: ObservableObject {
                   identity.signature == 0x53435452 else { return OSStatus(eventNotHandledErr) }
             MainActor.assumeIsolated {
                 let owner = Unmanaged<TransferShortcut>.fromOpaque(context).takeUnretainedValue()
-                if !owner.recording { owner.onTrigger?() }
+                if !owner.recording && owner.permitsTrigger() { owner.onTrigger?() }
             }
             return noErr
         }, 1, &type, context, &handler)
@@ -96,6 +98,7 @@ final class TransferShortcut: ObservableObject {
     }
 
     func startRecording() {
+        onStartRecording?()
         cancelRecording()
         recording = true
         error = nil
@@ -120,7 +123,7 @@ final class TransferShortcut: ObservableObject {
         }
     }
 
-    private static func keyLabel(_ event: NSEvent) -> String? {
+    static func keyLabel(_ event: NSEvent) -> String? {
         switch event.keyCode {
         case 49: return "空格"
         case 123: return "←"

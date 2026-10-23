@@ -39,9 +39,10 @@ struct ClipboardSettingsView: View {
             }
 
             Section {
+                MenuPopoverShortcutSettings()
                 TransferShortcutSettings()
             } header: {
-                SettingsHeading("快捷键", symbol: "keyboard", detail: "在任何软件中，快速唤出中转站")
+                SettingsHeading("快捷键", symbol: "keyboard", detail: "快速打开弹窗与中转站，按序复制内容")
             }
 
             Section {

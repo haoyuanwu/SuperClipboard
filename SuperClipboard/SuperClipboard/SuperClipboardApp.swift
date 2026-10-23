@@ -19,6 +19,7 @@ struct SuperClipboardApp: App {
                 .environmentObject(store)
                 .environmentObject(launchAtLogin)
                 .task { launchAtLogin.configureDefaultIfNeeded() }
+                .modifier(MenuStatusInstaller(store: store, launchAtLogin: launchAtLogin))
                 .modifier(TransferShortcutInstaller(store: store))
                 .modifier(TransferDragReceiverInstaller(store: store))
                 .preferredColorScheme(appearanceMode.colorScheme)
@@ -37,22 +38,5 @@ struct SuperClipboardApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
 
-        MenuBarExtra {
-            MenuPopoverView()
-                .environmentObject(store)
-                .environmentObject(launchAtLogin)
-                .task { launchAtLogin.configureDefaultIfNeeded() }
-                .modifier(TransferShortcutInstaller(store: store))
-                .modifier(TransferDragReceiverInstaller(store: store))
-                .preferredColorScheme(appearanceMode.colorScheme)
-        } label: {
-            Image("MenuBarLogo")
-                .renderingMode(.original)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 18, height: 18)
-                .accessibilityLabel("SuperClipboard")
-        }
-        .menuBarExtraStyle(.window)
     }
 }
