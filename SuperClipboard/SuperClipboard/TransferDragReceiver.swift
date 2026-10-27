@@ -170,6 +170,7 @@ final class TransferDragReceiver {
             }
             guard let self else { return }
             self.importTask = nil
+            guard !store.transferDropCancelled else { return }
             // Open on failure too, so the existing shelf error alert is visible.
             store.transferWindowDidOpen()
             if let open = self.open { AppWindowCoordinator.showTransferWindow(open: open) }

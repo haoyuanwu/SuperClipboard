@@ -32,6 +32,23 @@ enum ClipboardSortOrder: String, CaseIterable, Identifiable {
     }
 }
 
+enum TransferFolderDropBehavior: String, CaseIterable, Identifiable {
+    case ask, groupContents, keepFolder
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .ask: "每次询问"
+        case .groupContents: "将文件夹内容添加成组"
+        case .keepFolder: "保留整个文件夹"
+        }
+    }
+}
+
+struct TransferFolderDropDecision {
+    let behavior: TransferFolderDropBehavior
+    let remember: Bool
+}
+
 struct ClipboardEntry: Codable, Identifiable {
     var id: UUID
     var kind: EntryKind
@@ -49,8 +66,9 @@ struct ClipboardEntry: Codable, Identifiable {
     var notebookFolderName: String? = nil
     var previewAspectRatio: CGFloat? = nil
     var transferFolderName: String? = nil
+    var fileGroupName: String? = nil
 
-    var isFileGroup: Bool { (kind == .file || kind == .video) && filePaths.count > 1 }
+    var isFileGroup: Bool { (kind == .file || kind == .video) && (filePaths.count > 1 || fileGroupName != nil) }
 
     var isNotebookEntry: Bool { notebookFolderName != nil }
     var isTransferEntry: Bool { transferFolderName != nil }
@@ -94,10 +112,34 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var transferEntries: [ClipboardEntry] = []
     @Published private(set) var transferBusy = false
     @Published private(set) var transferDropLoading = false
+    private(set) var transferDropCancelled = false
     @Published private(set) var transferWindowVisible = false
     @Published private(set) var transferClosedAt: Date?
     @Published var transferError: String?
     @Published var dragError: String?
+    @Published var transferFolderDropBehavior: TransferFolderDropBehavior = .ask {
+        didSet { defaults.set(transferFolderDropBehavior.rawValue, forKey: "transferFolderDropBehavior") }
+    }
+    /// Replaceable for tests; production uses a native, explicitly cancellable confirmation.
+    var folderDropConfirmation: ([URL]) async -> TransferFolderDropDecision? = { folders in
+        let alert = NSAlert()
+        alert.messageText = "将文件夹内容添加成组？"
+        let names = folders.prefix(3).map(\.lastPathComponent).joined(separator: "、")
+        alert.informativeText = "\(names)\n添加成组会收集文件夹第一层内容，子文件夹保留完整；也可以保留整个文件夹。空文件夹会完整保留。"
+        alert.addButton(withTitle: "添加成组")
+        alert.addButton(withTitle: "保留文件夹")
+        alert.addButton(withTitle: "取消")
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "下次不再询问"
+        alert.window.level = .modalPanel
+        alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn || response == .alertSecondButtonReturn else { return nil }
+        return TransferFolderDropDecision(behavior: response == .alertFirstButtonReturn ? .groupContents : .keepFolder,
+                                          remember: alert.suppressionButton?.state == .on)
+    }
     @Published var transferDropSavesHistory = false {
         didSet { defaults.set(transferDropSavesHistory, forKey: "transferDropSavesHistory") }
     }
@@ -213,6 +255,7 @@ final class ClipboardStore: ObservableObject {
             transferClearMinutes = min(1440, max(1, minutes))
         }
         transferDropSavesHistory = defaults.bool(forKey: "transferDropSavesHistory")
+        transferFolderDropBehavior = TransferFolderDropBehavior(rawValue: defaults.string(forKey: "transferFolderDropBehavior") ?? "") ?? .ask
         do {
             let index = transferDirectory.appendingPathComponent("transfer.json")
             if FileManager.default.fileExists(atPath: index.path) {
@@ -590,9 +633,9 @@ final class ClipboardStore: ObservableObject {
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "选择并迁移"
-        panel.message = "将在所选位置创建 SuperClipboard Notebook 文件夹，并迁移已有记事本。"
+        panel.message = "将在所选位置创建 口袋Cube 记事本 文件夹，并迁移已有记事本。"
         guard panel.runModal() == .OK, let parent = panel.url else { return }
-        changeNotebookDirectory(to: parent.appendingPathComponent("SuperClipboard Notebook", isDirectory: true))
+        changeNotebookDirectory(to: parent.appendingPathComponent("口袋Cube 记事本", isDirectory: true))
     }
 
     func changeNotebookDirectory(to destination: URL) {
@@ -800,6 +843,7 @@ final class ClipboardStore: ObservableObject {
         }
         guard types.allSatisfy({ $0 != nil }) else { return false }
         transferDropLoading = true
+        transferDropCancelled = false
         transferError = nil
         let staging = folder.appendingPathComponent("DropImports", isDirectory: true).appendingPathComponent(UUID().uuidString)
         Task {
@@ -850,7 +894,11 @@ final class ClipboardStore: ObservableObject {
                     }
                     urls.append(contentsOf: loaded)
                 }
-                addDroppedFilesToTransfer(urls)
+                guard let plan = try await prepareTransferFolderDrop(urls) else {
+                    transferDropCancelled = true
+                    return
+                }
+                addDroppedFilesToTransfer(plan.urls, groupName: plan.groupName)
                 while transferBusy { try await Task.sleep(for: .milliseconds(10)) }
             } catch {
                 transferError = "无法读取拖入的文件：\(error.localizedDescription)"
@@ -859,7 +907,38 @@ final class ClipboardStore: ObservableObject {
         return true
     }
 
-    func addDroppedFilesToTransfer(_ urls: [URL]) {
+    private func prepareTransferFolderDrop(_ urls: [URL]) async throws -> (urls: [URL], groupName: String?)? {
+        var seen = Set<String>()
+        let urls = urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }
+            .filter { seen.insert($0.path).inserted }
+        let shelfPath = transferDirectory.standardizedFileURL.resolvingSymlinksInPath().path
+        guard !urls.contains(where: { $0.path == shelfPath || $0.path.hasPrefix(shelfPath + "/") }) else { return nil }
+        let folders = try urls.filter { url in
+            let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            return values.isDirectory == true && values.isPackage != true
+        }
+        guard !folders.isEmpty else { return (urls, nil) }
+        var behavior = transferFolderDropBehavior
+        if behavior == .ask {
+            guard let decision = await folderDropConfirmation(folders), decision.behavior != .ask else { return nil }
+            behavior = decision.behavior
+            if decision.remember { transferFolderDropBehavior = behavior }
+        }
+        guard behavior == .groupContents else { return (urls, nil) }
+        let folderPaths = Set(folders.map(\.path))
+        let expanded = try await Task.detached(priority: .userInitiated) {
+            try urls.flatMap { url -> [URL] in
+                guard folderPaths.contains(url.path) else { return [url] }
+                let children = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                    .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+                return children.isEmpty ? [url] : children
+            }
+        }.value
+        let name = folders.count == 1 && urls.count == 1 ? folders[0].lastPathComponent : "文件夹内容组"
+        return (expanded, name)
+    }
+
+    func addDroppedFilesToTransfer(_ urls: [URL], groupName: String? = nil) {
         guard !urls.isEmpty, urls.allSatisfy(\.isFileURL) else { return }
         var seen = Set<String>()
         let uniqueURLs = urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }
@@ -869,7 +948,7 @@ final class ClipboardStore: ObservableObject {
         let shelfPath = transferDirectory.standardizedFileURL.resolvingSymlinksInPath().path
         guard !uniqueURLs.contains(where: { $0.path == shelfPath || $0.path.hasPrefix(shelfPath + "/") }) else { return }
         let kind: EntryKind
-        if uniqueURLs.count == 1, let type = UTType(filenameExtension: uniqueURLs[0].pathExtension) {
+        if groupName == nil, uniqueURLs.count == 1, let type = UTType(filenameExtension: uniqueURLs[0].pathExtension) {
             kind = type.conforms(to: .image) ? .image : (type.conforms(to: .movie) ? .video : .file)
         } else {
             kind = .file
@@ -881,12 +960,12 @@ final class ClipboardStore: ObservableObject {
             guard !containsTransferImage(fingerprint: fingerprint) else { return }
         } else {
             // File order and duplicate URLs within the drop do not change its identity.
-            fingerprint = hash(Data((kind.rawValue + paths.sorted().joined(separator: "\u{0}")).utf8))
+            fingerprint = hash(Data(((groupName == nil ? kind.rawValue : "folder-group") + paths.sorted().joined(separator: "\u{0}")).utf8))
         }
         let item = ClipboardEntry(id: UUID(), kind: kind, fingerprint: fingerprint,
             plainText: nil, filePaths: paths, payloadName: nil, thumbnailName: nil,
             sourceAppName: "拖放导入", sourceBundleID: nil, createdAt: Date(),
-            lastCopiedAt: Date(), copyCount: 1, isPinned: false)
+            lastCopiedAt: Date(), copyCount: 1, isPinned: false, fileGroupName: groupName)
         addToTransfer(item, recordDropInHistory: transferDropSavesHistory)
     }
 

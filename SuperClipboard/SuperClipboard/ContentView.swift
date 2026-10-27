@@ -217,7 +217,7 @@ struct ContentView: View {
                 }
                 Menu {
                     Button("设置…", systemImage: "slider.horizontal.3") { activePanel = .settings }
-                    Button("关于 SuperClipboard", systemImage: "info.circle") { activePanel = .about }
+                    Button("关于 口袋Cube", systemImage: "info.circle") { activePanel = .about }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .semibold))
@@ -301,8 +301,8 @@ struct ContentView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 80, height: 80)
-                .accessibilityLabel("SuperClipboard")
-            Text("SuperClipboard").font(.system(size: 24, weight: .semibold, design: .rounded))
+                .accessibilityLabel("口袋Cube")
+            Text("口袋Cube").font(.system(size: 24, weight: .semibold, design: .rounded))
             Text("把灵感和资料，留在手边。")
                 .font(.system(size: 13))
                 .foregroundStyle(ClipboardTheme.secondary)
@@ -592,11 +592,14 @@ private struct SourceAppBadge: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
-            Text(item.sourceAppName)
+            Text(item.isTransferEntry && item.isFileGroup ? "文件组" : item.sourceAppName)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Group {
-                if let icon = AppIconPalette.icon(for: item.sourceBundleID) {
+                if item.isTransferEntry && item.isFileGroup {
+                    Image(systemName: "folder.fill")
+                        .resizable().scaledToFit().padding(2)
+                } else if let icon = AppIconPalette.icon(for: item.sourceBundleID) {
                     Image(nsImage: icon)
                         .resizable()
                         .interpolation(.high)
@@ -663,7 +666,7 @@ struct MenuPopoverView: View {
                             AppWindowCoordinator.showMainWindow { (menuOpenWindow ?? openWindow)(id: "main") }
                         }
                     }
-                    ToolbarIconButton(symbol: "power", title: "退出 SuperClipboard", size: 28) {
+                    ToolbarIconButton(symbol: "power", title: "退出 口袋Cube", size: 28) {
                         confirmsQuit = true
                     }
                 }
@@ -826,7 +829,7 @@ private struct QuitGlassConfirmation: View {
                 .frame(width: 52, height: 52)
                 .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 16))
             VStack(spacing: 8) {
-                Text("退出 SuperClipboard？")
+                Text("退出 口袋Cube？")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(ClipboardTheme.primary)
                 Text("退出后将停止记录剪贴板内容。")

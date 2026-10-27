@@ -11,7 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		96A5BFDC30886E4000035A75 /* SuperClipboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SuperClipboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		96A5BFDC30886E4000035A75 /* SuperClipboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "口袋Cube.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -253,7 +253,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = SuperClipboardIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = XSHY85VP6T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -262,9 +262,11 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.2;
+				MARKETING_VERSION = 1.3.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clipboard.why.SuperClipboard;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "口袋Cube";
+				PRODUCT_MODULE_NAME = SuperClipboard;
+				INFOPLIST_KEY_CFBundleDisplayName = "口袋Cube";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -281,7 +283,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = SuperClipboardIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = XSHY85VP6T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -290,9 +292,11 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.2;
+				MARKETING_VERSION = 1.3.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clipboard.why.SuperClipboard;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "口袋Cube";
+				PRODUCT_MODULE_NAME = SuperClipboard;
+				INFOPLIST_KEY_CFBundleDisplayName = "口袋Cube";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

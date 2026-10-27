@@ -56,3 +56,7 @@ python3 Scripts/publish_release.py --version 1.3.0 --prepare-only
 - 构建期间源文件变化：等待编辑结束，再运行原命令。
 - 已有版本标签指向其他提交/版本已正式发布：递增版本号。
 - 测试、签名或安装包校验失败：按脚本日志排查，不跳过验证继续上传。
+
+## 应用名称
+
+应用显示名为「口袋Cube」（原 SuperClipboard）；新安装包命名为 `PocketCube-版本-架构.dmg`，DMG 内为 `口袋Cube.app`。Xcode 工程和 Scheme 继续使用 SuperClipboard，发布仍使用上述统一脚本。Bundle ID 与 Application Support 目录保持原值，以保留历史、记事本与设置；已发布的旧版本附件不重命名。

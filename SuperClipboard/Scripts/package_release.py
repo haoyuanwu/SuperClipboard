@@ -11,6 +11,8 @@ from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
 REPOSITORY = PROJECT.parent
+APP_DISPLAY_NAME = "口袋Cube"
+ARTIFACT_PREFIX = "PocketCube"
 
 
 def run(*args):
@@ -34,24 +36,24 @@ def main():
             '-clonedSourcePackagesDirPath', args.packages,
             f'ARCHS={args.arch}', 'ONLY_ACTIVE_ARCH=NO', 'CODE_SIGNING_ALLOWED=NO',
             f'MARKETING_VERSION={args.version}', 'build')
-    source = derived / 'Build/Products/Release/SuperClipboard.app'
+    source = derived / 'Build/Products/Release' / f'{APP_DISPLAY_NAME}.app'
     if not source.is_dir():
         raise SystemExit(f'Missing build product: {source}')
     metadata = plistlib.loads((source / 'Contents/Info.plist').read_bytes())
     if metadata.get('CFBundleShortVersionString') != args.version:
         raise SystemExit('Build product version does not match requested version')
-    binary = source / 'Contents/MacOS/SuperClipboard'
+    binary = source / 'Contents/MacOS' / metadata['CFBundleExecutable']
     architectures = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
     if architectures != args.arch:
         raise SystemExit(f'Unexpected architecture: {architectures}')
     args.output.mkdir(parents=True, exist_ok=True)
-    dmg = args.output / f'SuperClipboard-{args.version}-{args.arch}.dmg'
+    dmg = args.output / f'{ARTIFACT_PREFIX}-{args.version}-{args.arch}.dmg'
     if dmg.exists():
         raise SystemExit(f'Refusing to overwrite: {dmg}')
     with tempfile.TemporaryDirectory(prefix=f'SuperClipboard-{args.arch}-') as directory:
         staging = Path(directory) / 'image'
         staging.mkdir()
-        app = staging / 'SuperClipboard.app'
+        app = staging / f'{APP_DISPLAY_NAME}.app'
         shutil.copytree(source, app, symlinks=True)
         (staging / 'Applications').symlink_to('/Applications', target_is_directory=True)
         shutil.copy2(PROJECT / 'docs/FEATURES.zh-CN.md', staging / '功能介绍.md')
@@ -67,7 +69,7 @@ def main():
             'License: Mozilla Public License 2.0\nThe dependency is used without source modifications.\n')
         run('codesign', '--force', '--deep', '--sign', '-', app)
         run('codesign', '--verify', '--deep', '--strict', '--verbose=2', app)
-        run('hdiutil', 'create', '-volname', f'SuperClipboard {args.version}',
+        run('hdiutil', 'create', '-volname', f'{APP_DISPLAY_NAME} {args.version}',
             '-srcfolder', staging, '-format', 'UDZO', '-ov', dmg)
     run('hdiutil', 'verify', dmg)
     digest = hashlib.sha256(dmg.read_bytes()).hexdigest()

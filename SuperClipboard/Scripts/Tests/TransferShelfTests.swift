@@ -436,6 +436,76 @@ struct TransferShelfTests {
         precondition(fm.fileExists(atPath: historyURL.path))
         batch.clearUnpinned()
         precondition(!fm.fileExists(atPath: historyURL.path), "App-owned import files are cleaned with their history record")
+        // Both UI destinations use this provider pipeline for folder decisions.
+        let folderRoot = root.appendingPathComponent("FolderChoices")
+        let folderSource = folderRoot.appendingPathComponent("项目资料")
+        let nested = folderSource.appendingPathComponent("子目录")
+        try fm.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("nested content".utf8).write(to: nested.appendingPathComponent("nested.txt"))
+        try image.write(to: folderSource.appendingPathComponent("cover.png"))
+        try Data("read me".utf8).write(to: folderSource.appendingPathComponent("readme.txt"))
+        let folderStorePath = folderRoot.appendingPathComponent("Store")
+        let folderStore = ClipboardStore(storageDirectory: folderStorePath, defaults: defaults,
+                                        pasteboard: pasteboard, observesPasteboard: false)
+        folderStore.transferDropSavesHistory = false
+        precondition(folderStore.transferFolderDropBehavior == .ask)
+        var folderPrompts = 0
+        folderStore.folderDropConfirmation = { folders in
+            folderPrompts += 1
+            precondition(folders == [folderSource])
+            return TransferFolderDropDecision(behavior: .groupContents, remember: true)
+        }
+        func dropFolder(_ urls: [URL]) async throws {
+            precondition(folderStore.acceptTransferFileDrop(urls.map { NSItemProvider(object: $0 as NSURL) }))
+            try await finish { folderStore.transferDropLoading || folderStore.transferBusy }
+            precondition(folderStore.transferError == nil)
+        }
+        try await dropFolder([folderSource, folderSource])
+        let folderGroup = folderStore.transferEntries[0]
+        precondition(folderPrompts == 1 && folderStore.transferFolderDropBehavior == .groupContents)
+        precondition(folderGroup.isFileGroup && folderGroup.fileGroupName == "项目资料" && folderGroup.filePaths.count == 3)
+        let archivedNested = folderGroup.filePaths.first { URL(fileURLWithPath: $0).lastPathComponent == "子目录" }!
+        let nestedBytes = try Data(contentsOf: URL(fileURLWithPath: archivedNested).appendingPathComponent("nested.txt"))
+        precondition(nestedBytes == Data("nested content".utf8))
+        try await dropFolder([folderSource])
+        precondition(folderPrompts == 1 && folderStore.transferEntries.count == 1, "Remembered grouping must deduplicate without prompting")
+        let singleFolder = folderRoot.appendingPathComponent("单文件目录")
+        try fm.createDirectory(at: singleFolder, withIntermediateDirectories: true)
+        try Data("one".utf8).write(to: singleFolder.appendingPathComponent("one.txt"))
+        try await dropFolder([singleFolder])
+        precondition(folderStore.transferEntries.last!.isFileGroup && folderStore.transferEntries.last!.filePaths.count == 1,
+                     "A one-child folder still has expandable group identity")
+        let reopenedFolders = ClipboardStore(storageDirectory: folderStorePath, defaults: defaults,
+                                             pasteboard: pasteboard, observesPasteboard: false)
+        precondition(reopenedFolders.transferFolderDropBehavior == .groupContents)
+        precondition(reopenedFolders.transferEntries.last!.fileGroupName == "单文件目录")
+        folderStore.transferFolderDropBehavior = .keepFolder
+        try await dropFolder([singleFolder])
+        let intact = folderStore.transferEntries.last!
+        precondition(!intact.isFileGroup && intact.filePaths.count == 1)
+        precondition(fm.fileExists(atPath: URL(fileURLWithPath: intact.filePaths[0]).appendingPathComponent("one.txt").path))
+        folderStore.transferFolderDropBehavior = .ask
+        folderStore.folderDropConfirmation = { _ in folderPrompts += 1; return nil }
+        let countBeforeCancel = folderStore.transferEntries.count
+        try await dropFolder([folderSource])
+        precondition(folderStore.transferDropCancelled && folderStore.transferEntries.count == countBeforeCancel)
+        precondition(folderStore.transferFolderDropBehavior == .ask && folderStore.entries.isEmpty,
+                     "Cancel must not save a preference, history, or shelf data")
+        folderStore.folderDropConfirmation = { _ in
+            TransferFolderDropDecision(behavior: .keepFolder, remember: false)
+        }
+        try await dropFolder([folderSource])
+        precondition(!folderStore.transferDropCancelled && folderStore.transferFolderDropBehavior == .ask)
+        let emptyFolder = folderRoot.appendingPathComponent("空文件夹")
+        try fm.createDirectory(at: emptyFolder, withIntermediateDirectories: true)
+        folderStore.transferFolderDropBehavior = .groupContents
+        try await dropFolder([emptyFolder])
+        precondition(folderStore.transferEntries.last!.isFileGroup && folderStore.transferEntries.last!.filePaths.count == 1)
+        precondition(fm.fileExists(atPath: folderStore.transferEntries.last!.filePaths[0]))
+        try fm.removeItem(at: folderSource)
+        precondition(fm.fileExists(atPath: archivedNested), "Grouped folder children must survive source deletion")
+        print("PASS: folder group/whole/cancel choices, remember preference, restart, one-child and empty groups, nested contents, dedup and source isolation")
+
         print("PASS: multi-provider mixed file drops, temporary file lifetime, loading guard and atomic failure")
         print("PASS: history/notebook text, RTF, captured image, file/video URLs, independent groups, missing originals and unchanged metadata")
         print("PASS: transfer content, direct text/image/file/video drops, drag providers and previews, optional history, deduplication, original removal, notebook isolation, close deadline, reopen cancellation, interval settings, restart and failure protection")

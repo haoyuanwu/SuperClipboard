@@ -51,6 +51,14 @@ struct ClipboardSettingsView: View {
                 }
                 .toggleStyle(.switch)
                 .accessibilityLabel("拖入内容保存到历史记录")
+                Picker(selection: $store.transferFolderDropBehavior) {
+                    ForEach(TransferFolderDropBehavior.allCases) { behavior in
+                        Text(behavior.title).tag(behavior)
+                    }
+                } label: {
+                    SettingsCopy("拖入文件夹", detail: "成组收集第一层内容，子文件夹保持完整。")
+                }
+                .accessibilityLabel("拖入文件夹处理方式")
                 HStack(spacing: 8) {
                     SettingsCopy("关闭后自动清空", detail: "重新打开中转站会取消倒计时。")
                     Spacer(minLength: 8)

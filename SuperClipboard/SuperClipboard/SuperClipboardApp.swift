@@ -14,7 +14,7 @@ struct SuperClipboardApp: App {
     @AppStorage("appearanceMode") private var appearanceMode: AppAppearanceMode = .light
 
     var body: some Scene {
-        Window("SuperClipboard", id: "main") {
+        Window("口袋Cube", id: "main") {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(launchAtLogin)

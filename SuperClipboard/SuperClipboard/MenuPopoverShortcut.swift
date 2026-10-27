@@ -140,10 +140,10 @@ final class MenuStatusController: NSObject {
         if let button = statusItem.button {
             let image = NSImage(named: "MenuBarLogo")?.copy() as? NSImage
             image?.size = NSSize(width: 22, height: 22)
-            image?.accessibilityDescription = "SuperClipboard"
+            image?.accessibilityDescription = "口袋Cube"
             image?.isTemplate = true
             button.image = image
-            button.toolTip = "SuperClipboard"
+            button.toolTip = "口袋Cube"
             button.target = self
             button.action = #selector(togglePopover)
         }

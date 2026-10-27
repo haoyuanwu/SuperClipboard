@@ -10,6 +10,7 @@ import shutil
 import shlex
 import subprocess
 import sys
+from package_release import APP_DISPLAY_NAME, ARTIFACT_PREFIX
 
 PROJECT = Path(__file__).resolve().parents[1]
 ROOT = PROJECT.parent
@@ -90,13 +91,13 @@ def main():
         text = text.replace('## 未发布\n', f'## 未发布\n\n## {args.version} — {date}\n', 1)
         changelog.write_text(text)
     readme = ROOT / 'README.md'
-    readme.write_text(re.sub(r'SuperClipboard-\d+\.\d+\.\d+-', f'SuperClipboard-{args.version}-', readme.read_text()))
+    readme.write_text(re.sub(r'(?:SuperClipboard|PocketCube)-\d+\.\d+\.\d+-', f'{ARTIFACT_PREFIX}-{args.version}-', readme.read_text()))
     body = notes(args.version)
     OUTPUT.mkdir(exist_ok=True)
     checkpoint = OUTPUT / f'publish-{args.version}.json'
     digest = source_digest()
     cached = json.loads(checkpoint.read_text()) if checkpoint.exists() else {}
-    assets = [OUTPUT / f'SuperClipboard-{args.version}-{arch}{suffix}'
+    assets = [OUTPUT / f'{ARTIFACT_PREFIX}-{args.version}-{arch}{suffix}'
               for arch in ['arm64', 'x86_64'] for suffix in ['.dmg', '.dmg.sha256', '.manifest.json']]
     reusable = cached.get('sourceDigest') == digest and all(
         asset.exists() and hashlib.sha256(asset.read_bytes()).hexdigest() == cached.get('assets', {}).get(asset.name)
@@ -149,7 +150,7 @@ def main():
                    capture=True, check=False)
     if not existing:
         run(gh, 'release', 'create', args.version, '--repo', repo, '--verify-tag', '--draft',
-            '--title', f'SuperClipboard {args.version}', '--notes-file', body_path)
+            '--title', f'{APP_DISPLAY_NAME} {args.version}', '--notes-file', body_path)
     elif not json.loads(existing)['isDraft']:
         raise SystemExit('此版本已正式发布，不覆盖附件；如需更新请使用新版本号')
     run(gh, 'release', 'upload', args.version, *assets, '--repo', repo, '--clobber')

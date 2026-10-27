@@ -1,8 +1,10 @@
-# SuperClipboard
+# 口袋Cube
+
+原名 SuperClipboard。应用现已更名为「口袋Cube」，安装包前缀为 `PocketCube`，已有历史与设置继续保留。
 
 一个小巧的 macOS 剪贴板历史工具。通过菜单栏快速搜索和再次复制，在主页面查看原始内容、筛选类型与管理记录。
 
-<img src="SuperClipboard/SuperClipboard/Assets.xcassets/AppLogo.imageset/AppLogo.png" width="128" alt="SuperClipboard">
+<img src="SuperClipboard/SuperClipboard/Assets.xcassets/AppLogo.imageset/AppLogo.png" width="128" alt="口袋Cube">
 
 ## 下载与安装
 
@@ -10,10 +12,10 @@
 
 | 安装包 | 适用设备 |
 | --- | --- |
-| `SuperClipboard-1.3.2-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
-| `SuperClipboard-1.3.2-x86_64.dmg` | Intel Mac |
+| `PocketCube-1.3.3-arm64.dmg` | Apple Silicon，包括 M 系列芯片 |
+| `PocketCube-1.3.3-x86_64.dmg` | Intel Mac |
 
-系统要求：macOS 14 或更高版本。打开 DMG，将 SuperClipboard 拖入 Applications，再从“应用程序”启动。应用默认尝试注册开机启动，可以在设置中关闭；系统要求批准时，请前往“系统设置 → 通用 → 登录项”。
+系统要求：macOS 14 或更高版本。打开 DMG，将应用拖入 Applications，再从“应用程序”启动。应用默认尝试注册开机启动，可以在设置中关闭；系统要求批准时，请前往“系统设置 → 通用 → 登录项”。
 
 当前发布包使用临时签名，尚未进行 Developer ID 签名和 Apple 公证。macOS 可能阻止首次打开。确认安装包来自本仓库后，可以在“系统设置 → 隐私与安全性”中按系统提示允许打开。不要关闭系统整体安全保护。
 

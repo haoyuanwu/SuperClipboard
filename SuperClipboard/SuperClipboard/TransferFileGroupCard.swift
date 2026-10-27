@@ -22,7 +22,7 @@ struct TransferFileGroupCard: View {
                         TransferFileIcon(paths: item.filePaths, revision: status, size: 48, isGroup: true)
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
-                                Text("文件组").font(.system(size: 13, weight: .semibold))
+                                Text(item.fileGroupName ?? "文件组").font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
                                 Text("\(item.filePaths.count) 项")
                                     .font(.system(size: 10, weight: .medium)).monospacedDigit()
                                     .padding(.horizontal, 6).padding(.vertical, 3)
@@ -143,7 +143,7 @@ struct TransferFileIcon: View {
     @State private var preview: ClipboardPreview?
 
     private var request: ClipboardPreviewRequest {
-        let images = paths.filter { UTType(filenameExtension: URL(fileURLWithPath: $0).pathExtension)?.conforms(to: .image) == true }
+        let images = isGroup ? [] : paths.filter { UTType(filenameExtension: URL(fileURLWithPath: $0).pathExtension)?.conforms(to: .image) == true }
         return ClipboardPreviewRequest(key: "transfer-icon|\(images)|\(revision.missing)/\(revision.total)", richTextURL: nil,
                                        imageURLs: images.map { URL(fileURLWithPath: $0) })
     }
@@ -151,7 +151,10 @@ struct TransferFileIcon: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Group {
-                if let image = preview?.image {
+                if isGroup {
+                    Image(systemName: "folder.fill").resizable().scaledToFit().padding(9)
+                        .foregroundStyle(ClipboardTheme.toolbarAccent)
+                } else if let image = preview?.image {
                     Image(decorative: image, scale: 1).resizable().scaledToFill()
                 } else if !isGroup, let path = paths.first {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: path)).resizable().scaledToFit().padding(3)
@@ -163,15 +166,12 @@ struct TransferFileIcon: View {
             .frame(width: size, height: size)
             .background(ClipboardTheme.controlFill, in: RoundedRectangle(cornerRadius: 9))
             .clipShape(RoundedRectangle(cornerRadius: 9))
-            if isGroup {
-                Image(systemName: "square.stack.fill").font(.system(size: 10, weight: .semibold))
-                    .padding(4).background(ClipboardTheme.pageBackground, in: RoundedRectangle(cornerRadius: 5))
-                    .offset(x: 3, y: 3)
-            }
+
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
         .task(id: request) {
+            guard !isGroup else { return }
             let result = await ClipboardPreviewCache.shared.load(request)
             guard !Task.isCancelled else { return }
             preview = result
