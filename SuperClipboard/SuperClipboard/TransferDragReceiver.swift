@@ -262,8 +262,7 @@ private struct TransferDragHintView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(ClipboardTheme.primary)
-        .modifier(TransferShelfGlassSurface())
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(highlighted ? ClipboardTheme.focusRing : ClipboardTheme.border, lineWidth: highlighted ? 2 : 1))
+        .modifier(TransferShelfGlassSurface(showsBorder: false))
         .preferredColorScheme(appearanceMode.colorScheme)
     }
 }

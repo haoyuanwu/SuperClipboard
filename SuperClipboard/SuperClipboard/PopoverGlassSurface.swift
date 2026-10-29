@@ -90,6 +90,7 @@ struct PopoverHeaderGlassSurface: ViewModifier {
 /// bounds contrast while leaving the desktop visible through the glass.
 struct TransferShelfGlassSurface: ViewModifier {
     var isFocused = false
+    var showsBorder = true
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.colorScheme) private var colorScheme
@@ -132,7 +133,7 @@ struct TransferShelfGlassSurface: ViewModifier {
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
-                        lineWidth: 1
+                        lineWidth: showsBorder ? 1 : 0
                     )
                     .allowsHitTesting(false)
             }
