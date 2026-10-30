@@ -51,3 +51,8 @@ xcrun swiftc -swift-version 5 -default-isolation MainActor \
     Scripts/Tests/MenuPopoverShortcutTests.swift "$transfer_products/MediaToolSwift.o" "$transfer_products/ObjCExceptionCatcher.o" \
     -o "$transfer_test_dir/popover-shortcut-tests"
 "$transfer_test_dir/popover-shortcut-tests"
+xcrun swiftc -swift-version 5 -default-isolation MainActor \
+    "${menu_sources[@]}" -I "$transfer_products" -Xcc "-fmodule-map-file=$transfer_modulemap" \
+    Scripts/Tests/AppStartupTests.swift "$transfer_products/MediaToolSwift.o" "$transfer_products/ObjCExceptionCatcher.o" \
+    -o "$transfer_test_dir/startup-tests"
+"$transfer_test_dir/startup-tests"

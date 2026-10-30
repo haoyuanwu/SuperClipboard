@@ -11,7 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		96A5BFDC30886E4000035A75 /* SuperClipboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "口袋Cube.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		96A5BFDC30886E4000035A75 /* 口袋Cube.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "口袋Cube.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -43,7 +43,7 @@
 		96A5BFDD30886E4000035A75 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				96A5BFDC30886E4000035A75 /* SuperClipboard.app */,
+				96A5BFDC30886E4000035A75 /* 口袋Cube.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -69,7 +69,7 @@
 				A51C000230886E4000035A75 /* MediaToolSwift */,
 			);
 			productName = SuperClipboard;
-			productReference = 96A5BFDC30886E4000035A75 /* SuperClipboard.app */;
+			productReference = 96A5BFDC30886E4000035A75 /* 口袋Cube.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -253,20 +253,20 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = SuperClipboardIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = XSHY85VP6T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "口袋Cube";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.4;
+				MARKETING_VERSION = 1.3.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clipboard.why.SuperClipboard;
-				PRODUCT_NAME = "口袋Cube";
 				PRODUCT_MODULE_NAME = SuperClipboard;
-				INFOPLIST_KEY_CFBundleDisplayName = "口袋Cube";
+				PRODUCT_NAME = "口袋Cube";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -283,20 +283,20 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = SuperClipboardIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = XSHY85VP6T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "口袋Cube";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.4;
+				MARKETING_VERSION = 1.3.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clipboard.why.SuperClipboard;
-				PRODUCT_NAME = "口袋Cube";
 				PRODUCT_MODULE_NAME = SuperClipboard;
-				INFOPLIST_KEY_CFBundleDisplayName = "口袋Cube";
+				PRODUCT_NAME = "口袋Cube";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

@@ -67,6 +67,8 @@ struct ClipboardEntry: Codable, Identifiable {
     var previewAspectRatio: CGFloat? = nil
     var transferFolderName: String? = nil
     var fileGroupName: String? = nil
+    var webImageCacheName: String? = nil
+    var sourceFilePaths: [String]? = nil
 
     var isFileGroup: Bool { (kind == .file || kind == .video) && (filePaths.count > 1 || fileGroupName != nil) }
 
@@ -113,6 +115,9 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var transferBusy = false
     @Published private(set) var transferDropLoading = false
     private(set) var transferDropCancelled = false
+    private(set) var transferDragIsInternal = false
+    func beginInternalTransferDrag() { transferDragIsInternal = true }
+    func beginExternalDragGesture() { transferDragIsInternal = false }
     @Published private(set) var transferWindowVisible = false
     @Published private(set) var transferClosedAt: Date?
     @Published var transferError: String?
@@ -681,9 +686,24 @@ final class ClipboardStore: ObservableObject {
     }
 
     func isInTransfer(_ item: ClipboardEntry) -> Bool {
-        transferEntries.contains {
-            $0.fingerprint == item.fingerprint ||
-            (item.kind == .text && $0.kind == .text && $0.plainText == item.plainText)
+        func paths(_ entry: ClipboardEntry) -> Set<String> {
+            Set((entry.sourceFilePaths ?? entry.filePaths).map {
+                URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path
+            })
+        }
+        return transferEntries.contains { saved in
+            if saved.id == item.id { return true }
+            if !item.filePaths.isEmpty, item.webImageCacheName == nil,
+               let sourcePaths = saved.sourceFilePaths, !sourcePaths.isEmpty {
+                return paths(saved) == paths(item)
+            }
+            if saved.sourceFilePaths == nil, !item.filePaths.isEmpty, item.kind != .image {
+                let joined = paths(item).sorted().joined(separator: "\u{0}")
+                if saved.fingerprint == hash(Data((item.kind.rawValue + joined).utf8))
+                    || saved.fingerprint == hash(Data(("folder-group" + joined).utf8)) { return true }
+            }
+            return saved.fingerprint == item.fingerprint ||
+                (item.kind == .text && saved.kind == .text && saved.plainText == item.plainText)
         }
     }
 
@@ -830,8 +850,33 @@ final class ClipboardStore: ObservableObject {
 
     /// Resolve every provider before importing the group. Temporary representations
     /// are copied inside their callbacks, before the system removes them.
+    /// Keep the native URLs and their access scope alive until the independent copy finishes.
+    func acceptTransferURLs(_ urls: [URL]) -> Bool {
+        guard !transferDragIsInternal, !transferBusy, !transferDropLoading, !notebookBusy, !urls.isEmpty,
+              urls.allSatisfy(\.isFileURL) else { return false }
+        let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
+        transferDropLoading = true
+        transferDropCancelled = false
+        transferError = nil
+        Task {
+            defer {
+                for url in scoped { url.stopAccessingSecurityScopedResource() }
+                transferDropLoading = false
+            }
+            do {
+                guard let plan = try await prepareTransferFolderDrop(urls) else {
+                    transferDropCancelled = true
+                    return
+                }
+                addDroppedFilesToTransfer(plan.urls, groupName: plan.groupName)
+                while transferBusy { try await Task.sleep(for: .milliseconds(10)) }
+            } catch { transferError = "无法读取拖入的文件：\(error.localizedDescription)" }
+        }
+        return true
+    }
+
     func acceptTransferFileDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard !transferBusy, !transferDropLoading, !notebookBusy, !providers.isEmpty,
+        guard !transferDragIsInternal, !transferBusy, !transferDropLoading, !notebookBusy, !providers.isEmpty,
               !Self.isTransferDrag(providers) else { return false }
         let types = providers.map { provider -> String? in
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) { return UTType.fileURL.identifier }
@@ -939,7 +984,7 @@ final class ClipboardStore: ObservableObject {
     }
 
     func addDroppedFilesToTransfer(_ urls: [URL], groupName: String? = nil) {
-        guard !urls.isEmpty, urls.allSatisfy(\.isFileURL) else { return }
+        guard !transferDragIsInternal, !urls.isEmpty, urls.allSatisfy(\.isFileURL) else { return }
         var seen = Set<String>()
         let uniqueURLs = urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }
             .filter { seen.insert($0.path).inserted }
@@ -955,13 +1000,8 @@ final class ClipboardStore: ObservableObject {
         }
         let paths = uniqueURLs.map(\.path)
         let fingerprint: String
-        if kind == .image, let data = imageData(from: uniqueURLs[0]) {
-            fingerprint = hash(data)
-            guard !containsTransferImage(fingerprint: fingerprint) else { return }
-        } else {
-            // File order and duplicate URLs within the drop do not change its identity.
-            fingerprint = hash(Data(((groupName == nil ? kind.rawValue : "folder-group") + paths.sorted().joined(separator: "\u{0}")).utf8))
-        }
+        // Local file identity is its normalized source path, including images.
+        fingerprint = hash(Data(("source-files|" + paths.sorted().joined(separator: "\u{0}")).utf8))
         let item = ClipboardEntry(id: UUID(), kind: kind, fingerprint: fingerprint,
             plainText: nil, filePaths: paths, payloadName: nil, thumbnailName: nil,
             sourceAppName: "拖放导入", sourceBundleID: nil, createdAt: Date(),
@@ -979,7 +1019,8 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
-    func addDroppedImageToTransfer(_ data: Data, fileExtension: String = "png") {
+    func addDroppedImageToTransfer(_ data: Data, fileExtension: String = "png", isWebImage: Bool = false) {
+        guard !transferDragIsInternal, !transferBusy, !transferDropLoading, !notebookBusy, !transferLoadFailed else { return }
         guard NSImage(data: data) != nil else {
             transferError = "无法读取拖入的图片。"
             return
@@ -988,9 +1029,12 @@ final class ClipboardStore: ObservableObject {
         guard !containsTransferImage(fingerprint: fingerprint) else { return }
         let ext = ["png", "jpg", "jpeg", "gif", "tiff", "heic", "webp"].contains(fileExtension.lowercased())
             ? fileExtension.lowercased() : "png"
-        let temporaryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SuperClipboard-drop-\(UUID().uuidString).\(ext)")
-        do { try data.write(to: temporaryURL, options: .atomic) }
+        let cacheDirectory = isWebImage ? folder.appendingPathComponent("tmp", isDirectory: true) : FileManager.default.temporaryDirectory
+        let temporaryURL = cacheDirectory.appendingPathComponent("SuperClipboard-drop-\(UUID().uuidString).\(ext)")
+        do {
+            try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            try data.write(to: temporaryURL, options: .atomic)
+        }
         catch {
             transferError = "无法准备拖入的图片：\(error.localizedDescription)"
             return
@@ -998,16 +1042,26 @@ final class ClipboardStore: ObservableObject {
         let item = ClipboardEntry(id: UUID(), kind: .image, fingerprint: fingerprint,
             plainText: nil, filePaths: [temporaryURL.path], payloadName: nil, thumbnailName: nil,
             sourceAppName: "拖放导入", sourceBundleID: nil, createdAt: Date(),
-            lastCopiedAt: Date(), copyCount: 1, isPinned: false)
-        addToTransfer(item, recordDropInHistory: transferDropSavesHistory, imageData: data, temporaryURL: temporaryURL)
+            lastCopiedAt: Date(), copyCount: 1, isPinned: false, webImageCacheName: isWebImage ? temporaryURL.lastPathComponent : nil)
+        addToTransfer(item, recordDropInHistory: transferDropSavesHistory, imageData: data, temporaryURL: isWebImage ? nil : temporaryURL)
     }
 
-    func addDroppedTextToTransfer(_ text: String) {
-        guard !text.isEmpty else { return }
+    func addDroppedTextToTransfer(_ text: String, rtfData: Data? = nil) {
+        guard !transferDragIsInternal, !transferBusy, !notebookBusy, !transferLoadFailed, !text.isEmpty else { return }
+        var payload: String?
+        if let rtfData {
+            let name = "\(UUID().uuidString)-drop.rtf"
+            do { try rtfData.write(to: folder.appendingPathComponent(name), options: .atomic); payload = name }
+            catch { transferError = "无法保存拖入的富文本：\(error.localizedDescription)"; return }
+        }
         let item = ClipboardEntry(id: UUID(), kind: .text, fingerprint: hash(Data(text.utf8)),
-            plainText: text, filePaths: [], payloadName: nil, thumbnailName: nil,
+            plainText: text, filePaths: [], payloadName: payload, thumbnailName: nil,
             sourceAppName: "拖放导入", sourceBundleID: nil, createdAt: Date(),
             lastCopiedAt: Date(), copyCount: 1, isPinned: false)
+        if isInTransfer(item) {
+            if let payload { try? FileManager.default.removeItem(at: folder.appendingPathComponent(payload)) }
+            return
+        }
         addToTransfer(item, recordDropInHistory: transferDropSavesHistory)
     }
 
@@ -1035,6 +1089,10 @@ final class ClipboardStore: ObservableObject {
         Task {
             defer {
                 transferBusy = false
+                if let name = item.webImageCacheName,
+                   !transferEntries.contains(where: { $0.webImageCacheName == name }) {
+                    try? FileManager.default.removeItem(at: folder.appendingPathComponent("tmp").appendingPathComponent(URL(fileURLWithPath: name).lastPathComponent))
+                }
                 transferSourceIDs.remove(item.id)
                 if let temporaryURL { try? FileManager.default.removeItem(at: temporaryURL) }
                 if !item.isNotebookEntry && !item.isTransferEntry && !entries.contains(where: { $0.id == item.id }) {
@@ -1043,22 +1101,25 @@ final class ClipboardStore: ObservableObject {
                 scheduleTransferCleanup()
             }
             do {
-                let snapshot = try await Task.detached(priority: .userInitiated) {
-                    try NotebookStorage.archive(id: id, sourceFolder: source, destination: destination,
-                        filePaths: item.filePaths, payloadName: item.payloadName, thumbnailName: thumbnail,
-                        requiresFiles: item.kind == .file || item.kind == .video, requiresImage: item.kind == .image)
-                }.value
+                let snapshot = try await archiveTransferWithAuthorization(item: item, id: id, source: source,
+                                                                          destination: destination, thumbnail: thumbnail)
                 var archived = item
                 archived.id = id
                 archived.isPinned = false
                 archived.notebookFolderName = nil
                 archived.transferFolderName = snapshot.directoryName
+                archived.sourceFilePaths = item.sourceFilePaths ?? (item.webImageCacheName == nil ? item.filePaths : [])
                 archived.filePaths = snapshot.filePaths
                 archived.payloadName = snapshot.payloadName
                 archived.thumbnailName = snapshot.thumbnailName
+                let previousClosedAt = transferClosedAt
+                // A newly saved item starts its own retention interval. A stale
+                // close time from an empty shelf must not delete this first drop.
+                if !transferWindowVisible { transferClosedAt = Date() }
                 transferEntries.append(archived)
                 do { try writeTransferState() }
                 catch {
+                    transferClosedAt = previousClosedAt
                     transferEntries.removeAll { $0.id == id }
                     try? FileManager.default.removeItem(at: destination.appendingPathComponent(snapshot.directoryName))
                     throw error
@@ -1075,6 +1136,62 @@ final class ClipboardStore: ObservableObject {
             } catch {
                 transferError = "加入中转站失败：\(error.localizedDescription.replacingOccurrences(of: "记事本", with: "中转站"))"
             }
+        }
+    }
+
+    private func archiveTransferWithAuthorization(item: ClipboardEntry, id: UUID, source: URL,
+                                                  destination: URL, thumbnail: String?) async throws -> NotebookStorage.Snapshot {
+        func archive() async throws -> NotebookStorage.Snapshot {
+            try await Task.detached(priority: .userInitiated) {
+                try NotebookStorage.archive(id: id, sourceFolder: source, destination: destination,
+                    filePaths: item.filePaths, payloadName: item.payloadName, thumbnailName: thumbnail,
+                    requiresFiles: item.kind == .file || item.kind == .video, requiresImage: item.kind == .image)
+            }.value
+        }
+        do { return try await archive() }
+        catch {
+            let failure = error as NSError
+            let cause = failure.userInfo[NSUnderlyingErrorKey] as? NSError
+            let denied = (failure.domain == NSCocoaErrorDomain && [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(failure.code))
+                || (failure.domain == NSPOSIXErrorDomain && [1, 13].contains(failure.code))
+                || (cause?.domain == NSPOSIXErrorDomain && [1, 13].contains(cause?.code ?? 0))
+            // Ask only for source access, never modify permissions or write into a source folder.
+            guard denied, !item.filePaths.isEmpty,
+                  item.filePaths.contains(where: { path in
+                      guard FileManager.default.isReadableFile(atPath: path) else { return true }
+                      var directory: ObjCBool = false
+                      FileManager.default.fileExists(atPath: path, isDirectory: &directory)
+                      if directory.boolValue { return false }
+                      do {
+                          let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+                          try handle.close()
+                          return false
+                      } catch { return true }
+                  }) else { throw error }
+            let panel = NSOpenPanel()
+            panel.title = "允许口袋Cube读取拖入的文件"
+            panel.message = "源文件位于微信等应用的受保护目录。请选择刚才拖入的文件，授权后将重试保存中转副本。"
+            panel.prompt = "授权并重试"
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = item.filePaths.count > 1
+            panel.directoryURL = URL(fileURLWithPath: item.filePaths[0]).deletingLastPathComponent()
+            panel.nameFieldStringValue = URL(fileURLWithPath: item.filePaths[0]).lastPathComponent
+            panel.level = .modalPanel
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            guard panel.runModal() == .OK else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError,
+                              userInfo: [NSLocalizedDescriptionKey: "已取消文件读取授权，未加入中转站。"])
+            }
+            let required = Set(item.filePaths.map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path })
+            let selected = Set(panel.urls.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+            guard required.isSubset(of: selected) else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError,
+                              userInfo: [NSLocalizedDescriptionKey: "请选择刚才拖入的原文件，或先将文件另存到下载文件夹再拖入。"])
+            }
+            let scoped = panel.urls.filter { $0.startAccessingSecurityScopedResource() }
+            defer { for url in scoped { url.stopAccessingSecurityScopedResource() } }
+            return try await archive()
         }
     }
 
@@ -1097,7 +1214,7 @@ final class ClipboardStore: ObservableObject {
 
     @discardableResult
     func clearExpiredTransfer(at now: Date = Date()) -> Bool {
-        guard !transferWindowVisible, !transferBusy, !transferEntries.isEmpty,
+        guard !transferWindowVisible, !transferBusy, !transferDropLoading, !transferEntries.isEmpty,
               let closed = transferClosedAt,
               now.timeIntervalSince(closed) >= Double(transferClearMinutes) * 60 else { return false }
         return clearTransfer()
@@ -1154,6 +1271,8 @@ final class ClipboardStore: ObservableObject {
     private func deleteTransferFiles(for items: [ClipboardEntry]) {
         let directories = items.compactMap { item in
             item.transferFolderName.map { transferDirectory.appendingPathComponent($0, isDirectory: true) }
+        } + items.compactMap { item in
+            item.webImageCacheName.map { folder.appendingPathComponent("tmp").appendingPathComponent(URL(fileURLWithPath: $0).lastPathComponent) }
         }
         Task.detached(priority: .utility) {
             for directory in directories { try? FileManager.default.removeItem(at: directory) }

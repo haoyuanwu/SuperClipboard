@@ -118,7 +118,11 @@ struct TransferShelfTests {
         restarted.addToTransfer(entry(.text, text: "Close during save"))
         restarted.transferWindowDidClose(at: Date().addingTimeInterval(-601))
         try await finish { restarted.transferBusy }
-        precondition(restarted.transferEntries.isEmpty, "A save finishing after the deadline must not leave expired data")
+        precondition(restarted.transferEntries.count == 1, "A new save must restart retention instead of inheriting an expired close timestamp")
+        precondition(restarted.transferClosedAt!.timeIntervalSinceNow > -5)
+        restarted.transferWindowDidOpen()
+        precondition(restarted.transferEntries.count == 1, "Opening after import must retain the fresh item")
+        _ = restarted.clearTransfer()
         restarted.transferWindowDidOpen()
         restarted.addToTransfer(entry(.text, text: "Expired after restart"))
         try await finish { restarted.transferBusy }
@@ -505,6 +509,68 @@ struct TransferShelfTests {
         try fm.removeItem(at: folderSource)
         precondition(fm.fileExists(atPath: archivedNested), "Grouped folder children must survive source deletion")
         print("PASS: folder group/whole/cancel choices, remember preference, restart, one-child and empty groups, nested contents, dedup and source isolation")
+
+        let webRoot = root.appendingPathComponent("WebImageCache")
+        let webStore = ClipboardStore(storageDirectory: webRoot, defaults: defaults, pasteboard: pasteboard, observesPasteboard: false)
+        webStore.transferDropSavesHistory = true
+        webStore.addDroppedImageToTransfer(image, isWebImage: true)
+        try await finish { webStore.transferBusy }
+        let webEntry = webStore.transferEntries[0]
+        let webCache = webRoot.appendingPathComponent("tmp").appendingPathComponent(webEntry.webImageCacheName!)
+        precondition(fm.fileExists(atPath: webCache.path))
+        webStore.addDroppedImageToTransfer(image, isWebImage: true)
+        let webFiles = try fm.contentsOfDirectory(atPath: webRoot.appendingPathComponent("tmp").path)
+        precondition(webFiles.count == 1)
+        webStore.removeFromTransfer(webEntry)
+        try await finish { fm.fileExists(atPath: webCache.path) }
+        precondition(webStore.entries.count == 1 && webStore.copy(webStore.entries[0]))
+        webStore.addDroppedImageToTransfer(image, isWebImage: true)
+        try await finish { webStore.transferBusy }
+        let cachedAgain = webRoot.appendingPathComponent("tmp").appendingPathComponent(webStore.transferEntries[0].webImageCacheName!)
+        precondition(webStore.clearTransfer())
+        try await finish { fm.fileExists(atPath: cachedAgain.path) }
+        print("PASS: web image tmp persistence, dedup, individual deletion, clear and independent history")
+        // Cold start with an empty shelf whose previous close deadline expired.
+        let firstDropRoot = root.appendingPathComponent("FirstDropAfterLaunch")
+        try fm.createDirectory(at: firstDropRoot.appendingPathComponent("Transfer"), withIntermediateDirectories: true)
+        try JSONEncoder().encode(SavedState(entries: [], closedAt: Date().addingTimeInterval(-3600)))
+            .write(to: firstDropRoot.appendingPathComponent("Transfer/transfer.json"))
+        let firstDrop = ClipboardStore(storageDirectory: firstDropRoot, defaults: defaults, pasteboard: pasteboard, observesPasteboard: false)
+        precondition(firstDrop.acceptTransferURLs([dropFile]))
+        try await finish { firstDrop.transferDropLoading || firstDrop.transferBusy }
+        precondition(firstDrop.transferEntries.count == 1, "First import into an expired empty shelf must survive completion")
+        firstDrop.transferWindowDidOpen()
+        precondition(firstDrop.transferEntries.count == 1, "First window opening must not clear the just-imported content")
+        precondition(fm.fileExists(atPath: firstDrop.transferEntries[0].filePaths[0]))
+        print("PASS: cold-start first file drop with stale close timestamp retains saved files when the shelf opens")
+
+        let pathRoot = root.appendingPathComponent("PathIdentity")
+        try fm.createDirectory(at: pathRoot, withIntermediateDirectories: true)
+        let sameA = pathRoot.appendingPathComponent("first.png")
+        let sameB = pathRoot.appendingPathComponent("second.png")
+        try image.write(to: sameA)
+        try image.write(to: sameB)
+        let pathStore = ClipboardStore(storageDirectory: pathRoot.appendingPathComponent("Store"), defaults: defaults, pasteboard: pasteboard, observesPasteboard: false)
+        pathStore.addDroppedFilesToTransfer([sameA])
+        try await finish { pathStore.transferBusy }
+        pathStore.addDroppedFilesToTransfer([sameA])
+        try await finish { pathStore.transferBusy }
+        precondition(pathStore.transferEntries.count == 1)
+        pathStore.addDroppedFilesToTransfer([sameB])
+        try await finish { pathStore.transferBusy }
+        precondition(pathStore.transferEntries.count == 2, "Identical image bytes from different paths must remain separate")
+        pathStore.beginInternalTransferDrag()
+        precondition(!pathStore.acceptTransferURLs([sameA]))
+        precondition(!pathStore.acceptTransferFileDrop([NSItemProvider(object: sameB as NSURL)]))
+        pathStore.addDroppedImageToTransfer(image)
+        precondition(pathStore.transferEntries.count == 2 && !pathStore.transferBusy,
+                     "An internal drag with lost marker must not reimport through an alternate representation")
+        pathStore.beginExternalDragGesture()
+        let restoredPaths = ClipboardStore(storageDirectory: pathRoot.appendingPathComponent("Store"), defaults: defaults, pasteboard: pasteboard, observesPasteboard: false)
+        restoredPaths.addDroppedFilesToTransfer([sameA])
+        try await finish { restoredPaths.transferBusy }
+        precondition(restoredPaths.transferEntries.count == 2, "Original path identity must survive a restart")
+        print("PASS: same-path dedup, distinct-path identical images, persisted source identity and internal drag rejection without markers")
 
         print("PASS: multi-provider mixed file drops, temporary file lifetime, loading guard and atomic failure")
         print("PASS: history/notebook text, RTF, captured image, file/video URLs, independent groups, missing originals and unchanged metadata")

@@ -58,7 +58,19 @@ enum NotebookStorage {
                 let relative = "files/\(index)/\(source.lastPathComponent)"
                 let target = staging.appendingPathComponent(relative)
                 try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fm.copyItem(at: resolvedSource, to: target)
+                do { try fm.copyItem(at: resolvedSource, to: target) }
+                catch {
+                    let failure = error as NSError
+                    let underlying = failure.userInfo[NSUnderlyingErrorKey] as? NSError
+                    let permissionFailure = (failure.domain == NSCocoaErrorDomain && [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(failure.code))
+                        || (failure.domain == NSPOSIXErrorDomain && [1, 13].contains(failure.code))
+                        || (underlying?.domain == NSPOSIXErrorDomain && [1, 13].contains(underlying?.code ?? 0))
+                    guard permissionFailure, !isDirectory.boolValue else { throw error }
+                    // Some downloads permit reading bytes but prohibit copying their
+                    // metadata/ACL. Copy only regular-file contents, in bounded chunks.
+                    if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+                    try copyFileContents(from: resolvedSource, to: target)
+                }
                 storedPaths.append(final.appendingPathComponent(relative).path)
             }
         } else if requiresImage, let payload {
@@ -72,6 +84,29 @@ enum NotebookStorage {
         }
         try fm.moveItem(at: staging, to: final)
         return Snapshot(directoryName: name, filePaths: storedPaths, payloadName: payload, thumbnailName: thumbnail)
+    }
+
+    nonisolated static func copyFileContents(from source: URL, to target: URL) throws {
+        let fm = FileManager.default
+        let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        guard fm.createFile(atPath: target.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: target.path])
+        }
+        var complete = false
+        defer { if !complete { try? fm.removeItem(at: target) } }
+        let output = try FileHandle(forWritingTo: target)
+        defer { try? output.close() }
+        var copied = 0
+        while let chunk = try input.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+            try output.write(contentsOf: chunk)
+            copied += chunk.count
+        }
+        guard copied == values.fileSize else { throw CocoaError(.fileReadCorruptFile) }
+        try output.synchronize()
+        complete = true
     }
 
     nonisolated static func relocate(from source: URL, to destination: URL) throws {

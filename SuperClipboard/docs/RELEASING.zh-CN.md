@@ -51,6 +51,9 @@ python3 Scripts/publish_release.py --version 1.3.0 --prepare-only
 
 ## 常见问题
 
+用户明确要求重新上传当前版本时，可运行 `python3 Scripts/publish_release.py --version 当前版本 --replace-assets`。
+此选项重新验证并打包当前源码，替换两个架构的安装包及校验附件，保留版本号、Git 标签和发布说明；不提交或推送源码。普通发布仍禁止覆盖正式版本。
+
 - 未登录/权限不足：用 gh auth login 登录有仓库 Contents 写入权限的账号或令牌；不要把令牌粘贴到聊天或文档。
 - main 落后远端：先检查并合并远端改动，不要强制推送。
 - 构建期间源文件变化：等待编辑结束，再运行原命令。

@@ -103,7 +103,11 @@ struct TransferShelfGlassSurface: ViewModifier {
                         .fill(ClipboardTheme.pageBackground)
                 } else {
                     ZStack {
-                        if isFocused {
+                        if !showsBorder {
+                            // Liquid Glass draws its own rim even without our stroke.
+                            // The drag hint needs a genuinely borderless material.
+                            TransferShelfFrostedBackground(material: .underWindowBackground)
+                        } else if isFocused {
                             // Force the native blur to stay active while this window is key.
                             TransferShelfFrostedBackground()
                         } else if #available(macOS 26.0, *) {
@@ -124,20 +128,25 @@ struct TransferShelfGlassSurface: ViewModifier {
             }
             .clipShape(RoundedRectangle(cornerRadius: 18))
             .overlay {
-                RoundedRectangle(cornerRadius: 18)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: colorScheme == .dark
-                                ? [.white.opacity(0.36), .white.opacity(0.08)]
-                                : [.white.opacity(0.82), ClipboardTheme.border.opacity(0.45)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: showsBorder ? 1 : 0
-                    )
-                    .allowsHitTesting(false)
+                if showsBorder {
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: colorScheme == .dark
+                                    ? [.white.opacity(0.36), .white.opacity(0.08)]
+                                    : [.white.opacity(0.82), ClipboardTheme.border.opacity(0.45)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                        .allowsHitTesting(false)
+                }
             }
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.27 : 0.15), radius: 24, x: 0, y: 12)
+            // The hint already has a native panel shadow; an inner SwiftUI
+            // shadow is clipped by its tight window bounds into a rectangle.
+            .shadow(color: showsBorder ? .black.opacity(colorScheme == .dark ? 0.27 : 0.15) : .clear,
+                    radius: 24, x: 0, y: 12)
     }
 }
 

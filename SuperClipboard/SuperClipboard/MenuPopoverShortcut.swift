@@ -135,6 +135,10 @@ final class MenuStatusController: NSObject {
     private let popover = NSPopover()
 
     func configure(store: ClipboardStore, launchAtLogin: LaunchAtLoginManager, openWindow: OpenWindowAction) {
+        configure(store: store, launchAtLogin: launchAtLogin, open: { openWindow(id: $0) })
+    }
+
+    func configure(store: ClipboardStore, launchAtLogin: LaunchAtLoginManager, open: @escaping (String) -> Void) {
         guard statusItem == nil else { return }
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
@@ -155,7 +159,7 @@ final class MenuStatusController: NSObject {
             MenuStatusContent()
                 .environmentObject(store)
                 .environmentObject(launchAtLogin)
-                .environment(\.clipboardOpenWindow, openWindow))
+                .environment(\.clipboardOpenWindow, open))
         let shortcut = MenuPopoverShortcut.shared
         shortcut.onTrigger = { [weak self] in self?.showPopover() }
         TransferShortcut.shared.onStartRecording = { [weak shortcut] in shortcut?.cancelRecording() }
@@ -235,11 +239,11 @@ struct MenuPopoverShortcutSettings: View {
 }
 
 private struct ClipboardOpenWindowKey: EnvironmentKey {
-    static let defaultValue: OpenWindowAction? = nil
+    static let defaultValue: ((String) -> Void)? = nil
 }
 
 extension EnvironmentValues {
-    var clipboardOpenWindow: OpenWindowAction? {
+    var clipboardOpenWindow: ((String) -> Void)? {
         get { self[ClipboardOpenWindowKey.self] }
         set { self[ClipboardOpenWindowKey.self] = newValue }
     }

@@ -52,6 +52,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.clipboardOpenWindow) private var menuOpenWindow
     @EnvironmentObject private var launchAtLogin: LaunchAtLoginManager
     @State private var section: LibrarySection = .all
     @State private var showsNotebook = false
@@ -70,6 +71,11 @@ struct ContentView: View {
             (section == .all || item.kind.rawValue == section.rawValue) &&
             (search.isEmpty || item.searchText.localizedCaseInsensitiveContains(search))
         }
+    }
+
+    private func openScene(_ id: String) {
+        if let menuOpenWindow { menuOpenWindow(id) }
+        else { openWindow(id: id) }
     }
 
     var body: some View {
@@ -213,7 +219,7 @@ struct ContentView: View {
                 }
                 ToolbarIconButton(symbol: "tray.full", title: "悬浮中转", size: 30) {
                     store.transferWindowDidOpen()
-                    AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
+                    AppWindowCoordinator.showTransferWindow { openScene("transfer") }
                 }
                 Menu {
                     Button("设置…", systemImage: "slider.horizontal.3") { activePanel = .settings }
@@ -412,8 +418,8 @@ private struct HistoryCard: View {
                 if item.isPinned { Image(systemName: "pin.fill") }
                 Spacer(minLength: 8)
                 SourceAppBadge(item: item)
-                    .frame(maxWidth: 120, alignment: .trailing)
-                    .layoutPriority(-1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
             }
             .font(.system(size: 12))
             .lineLimit(1)
@@ -590,11 +596,32 @@ private enum AppIconPalette {
 private struct SourceAppBadge: View {
     let item: ClipboardEntry
 
+    private var fallbackSymbol: String {
+        if item.isFileGroup { return "folder.fill" }
+        switch item.kind {
+        case .text: return "text.alignleft"
+        case .image: return "photo.fill"
+        case .video: return "play.rectangle.fill"
+        case .file:
+            let ext = item.firstFileURL?.pathExtension.lowercased() ?? ""
+            switch ext {
+            case "pdf": return "doc.richtext"
+            case "zip", "rar", "7z", "tar", "gz": return "archivebox.fill"
+            case "mp3", "wav", "m4a", "aac", "flac": return "waveform"
+            case "xls", "xlsx", "csv", "numbers": return "tablecells"
+            case "doc", "docx", "rtf", "txt", "md", "pages": return "doc.text.fill"
+            case "ppt", "pptx", "key": return "rectangle.on.rectangle"
+            default: return "doc.fill"
+            }
+        }
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
             Text(item.isTransferEntry && item.isFileGroup ? "文件组" : item.sourceAppName)
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .truncationMode(.middle)
+                .frame(width: 88, alignment: .trailing)
             Group {
                 if item.isTransferEntry && item.isFileGroup {
                     Image(systemName: "folder.fill")
@@ -604,13 +631,14 @@ private struct SourceAppBadge: View {
                         .resizable()
                         .interpolation(.high)
                 } else {
-                    Image(systemName: "app.fill")
+                    Image(systemName: fallbackSymbol)
                         .resizable()
                         .scaledToFit()
                         .padding(3)
                 }
             }
             .frame(width: 20, height: 20)
+            .accessibilityHidden(true)
         }
         .help(item.sourceAppName)
         .accessibilityElement(children: .combine)
@@ -641,6 +669,11 @@ struct MenuPopoverView: View {
         return (existing + added).filter { search.isEmpty || $0.searchText.localizedCaseInsensitiveContains(search) }
     }
 
+    private func openScene(_ id: String) {
+        if let menuOpenWindow { menuOpenWindow(id) }
+        else { openWindow(id: id) }
+    }
+
     var body: some View {
         let items = visibleItems
         VStack(spacing: 0) {
@@ -660,10 +693,10 @@ struct MenuPopoverView: View {
                     UtilityGroup {
                         ToolbarIconButton(symbol: "tray.full", title: "悬浮中转", size: 28) {
                             store.transferWindowDidOpen()
-                            AppWindowCoordinator.showTransferWindow { (menuOpenWindow ?? openWindow)(id: "transfer") }
+                            AppWindowCoordinator.showTransferWindow { openScene("transfer") }
                         }
                         ToolbarIconButton(symbol: "arrow.up.forward.square", title: "打开主窗口", size: 28) {
-                            AppWindowCoordinator.showMainWindow { (menuOpenWindow ?? openWindow)(id: "main") }
+                            AppWindowCoordinator.showMainWindow { openScene("main") }
                         }
                     }
                     ToolbarIconButton(symbol: "power", title: "退出 口袋Cube", size: 28) {
@@ -990,7 +1023,13 @@ private struct RichTextPreview: NSViewRepresentable {
 private struct EntryContextMenu: View {
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.clipboardOpenWindow) private var menuOpenWindow
     let item: ClipboardEntry
+    private func openScene(_ id: String) {
+        if let menuOpenWindow { menuOpenWindow(id) }
+        else { openWindow(id: id) }
+    }
+
     var body: some View {
         Button("再次复制", systemImage: "doc.on.doc") { store.copy(item) }
             .disabled(store.contentAvailability(for: item).isMissing)
@@ -998,7 +1037,7 @@ private struct EntryContextMenu: View {
             Button(store.isInTransfer(item) ? "在悬浮中转中显示" : "加入悬浮中转", systemImage: "tray.and.arrow.down") {
                 store.transferWindowDidOpen()
                 store.addToTransfer(item)
-                AppWindowCoordinator.showTransferWindow { openWindow(id: "transfer") }
+                AppWindowCoordinator.showTransferWindow { openScene("transfer") }
             }
             .disabled(store.transferBusy || store.notebookBusy || store.contentAvailability(for: item).isMissing)
         }
@@ -1316,6 +1355,7 @@ struct TransferShelfView: View {
     @EnvironmentObject private var store: ClipboardStore
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.clipboardCloseWindow) private var closeNativeWindow
     @State private var copiedItemID: UUID?
     @State private var copyToken = 0
     @State private var confirmsClear = false
@@ -1336,7 +1376,8 @@ struct TransferShelfView: View {
                 ToolbarIconButton(symbol: "trash", title: "清空中转站", size: 28) { confirmsClear = true }
                     .disabled(store.transferBusy || store.transferEntries.isEmpty)
                 ToolbarIconButton(symbol: "xmark", title: "关闭中转站", size: 28) {
-                    dismissWindow(id: "transfer")
+                    if let closeNativeWindow { closeNativeWindow("transfer") }
+                    else { dismissWindow(id: "transfer") }
                 }
             }
             .padding(.leading, 78)
@@ -1463,7 +1504,7 @@ struct TransferShelfView: View {
     private func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
         isDropTargeted = false
         guard !store.transferBusy, !store.notebookBusy, !providers.isEmpty,
-              !store.transferDropLoading, !ClipboardStore.isTransferDrag(providers) else { return false }
+              !store.transferDragIsInternal, !store.transferDropLoading, !ClipboardStore.isTransferDrag(providers) else { return false }
         if store.acceptTransferFileDrop(providers) { return true }
         guard providers.count == 1 else { return false }
         if let identifier = providers[0].registeredTypeIdentifiers.first(where: {
@@ -1572,6 +1613,7 @@ struct EntryDragSource: ViewModifier {
                 if let filePath { provider = store.transferFileDragProvider(filePath, in: item) }
                 else { provider = store.entryDragProvider(for: item) }
                 guard let provider else { return NSItemProvider() }
+                if item.isTransferEntry { store.beginInternalTransferDrag() }
                 if #available(macOS 26.0, *) { isDragging = true }
                 return provider
             } preview: {

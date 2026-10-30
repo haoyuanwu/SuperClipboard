@@ -63,6 +63,20 @@ struct NotebookStorageTests {
             preconditionFailure("A directory containing the notebook must not recursively archive itself")
         } catch NotebookStorage.StorageError.recursiveSource { }
 
+        let restrictedVideo = root.appendingPathComponent("只读视频.mp4")
+        let videoBytes = Data(repeating: 0x41, count: 3 * 1024 * 1024 + 17)
+        try videoBytes.write(to: restrictedVideo)
+        try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: restrictedVideo.path)
+        let streamedVideo = root.appendingPathComponent("视频副本.mp4")
+        try NotebookStorage.copyFileContents(from: restrictedVideo, to: streamedVideo)
+        precondition(tryData(streamedVideo.path) == videoBytes, "Streaming fallback must preserve complete large-video bytes")
+        let sourceMode = try fm.attributesOfItem(atPath: restrictedVideo.path)[.posixPermissions] as! NSNumber
+        precondition(sourceMode.intValue == 0o444, "Fallback must not change source permissions")
+        let invalidCopy = root.appendingPathComponent("invalid")
+        do {
+            try NotebookStorage.copyFileContents(from: root.appendingPathComponent("missing.mp4"), to: invalidCopy)
+            preconditionFailure("Missing video must not produce a successful empty copy")
+        } catch { precondition(!fm.fileExists(atPath: invalidCopy.path)) }
         let migrated = root.appendingPathComponent("Moved Notebook")
         try NotebookStorage.relocate(from: notebook, to: migrated)
         try fm.removeItem(at: notebook)

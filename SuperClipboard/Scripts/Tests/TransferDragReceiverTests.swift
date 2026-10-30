@@ -53,12 +53,38 @@ struct TransferDragReceiverTests {
         target.canAccept = { true }
         board.clearContents()
         board.setString("text", forType: .string)
-        precondition(target.beginTracking(board).isEmpty && !target.performDrop(board))
+        var plainText: String?
+        target.acceptText = { text, _ in plainText = text; return true }
+        precondition(target.beginTracking(board) == .copy && target.performDrop(board) && plainText == "text")
         board.clearContents()
         board.writeObjects([first as NSURL])
         board.setData(Data("own".utf8), forType: NSPasteboard.PasteboardType(ClipboardStore.transferDragTypeIdentifier))
         precondition(target.beginTracking(board).isEmpty && !target.performDrop(board))
         precondition(accepted.count == 1)
+        board.clearContents()
+        board.setString("https://example.com/photo.png?size=large", forType: .URL)
+        precondition(TransferWebImageDrop.hasSupportedContent(board))
+        var remote: URL?
+        target.acceptImageURL = { remote = $0; return true }
+        precondition(target.performDrop(board) && remote?.path == "/photo.png")
+        board.clearContents()
+        board.setString("https://example.com/article", forType: .URL)
+        precondition(TransferWebImageDrop.hasSupportedContent(board))
+        precondition(TransferWebImageDrop.imageURL(in: board) == nil, "Ordinary links must be saved as links, not downloaded as images")
+        precondition(target.performDrop(board) && plainText == "https://example.com/article")
+        board.clearContents()
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes:nil, pixelsWide:4, pixelsHigh:4, bitsPerSample:8, samplesPerPixel:4, hasAlpha:true, isPlanar:false, colorSpaceName:.deviceRGB, bytesPerRow:0, bitsPerPixel:0)!
+        let png = bitmap.representation(using:.png, properties:[:])!
+        board.setData(png, forType: .png)
+        var captured: Data?
+        target.acceptImage = { data, _ in captured = data; return true }
+        precondition(target.beginTracking(board) == .copy && target.performDrop(board) && captured == png)
+        board.clearContents()
+        board.setString("# WeChat Qt URI list\r\nfile:///tmp/sticker.gif\r\n", forType: NSPasteboard.PasteboardType("com.trolltech.anymime.text--uri-list"))
+        precondition(TransferWebImageDrop.hasSupportedContent(board))
+        precondition(TransferWebImageDrop.fileURLs(in: board) == [URL(fileURLWithPath: "/tmp/sticker.gif")])
+        target.accept = { urls in urls == [URL(fileURLWithPath: "/tmp/sticker.gif")] }
+        precondition(target.beginTracking(board) == .copy && target.performDrop(board))
         print("PASS: fresh file gesture detection, stale/text/internal/busy drag rejection, release/late callback reset and multi-display target placement")
     }
 }

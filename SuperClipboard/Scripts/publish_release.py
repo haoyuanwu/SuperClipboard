@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--version', required=True, help='例如 1.2.0')
     parser.add_argument('--build-number', type=int, help='首次发布新版本时默认递增')
     parser.add_argument('--prepare-only', action='store_true', help='更新、验证和打包，暂不提交或上传')
+    parser.add_argument('--replace-assets', action='store_true', help='明确替换已发布版本的附件，保留现有版本标签')
     args = parser.parse_args()
     if not re.fullmatch(r'\d+\.\d+\.\d+', args.version):
         parser.error('版本号格式应为 1.2.0')
@@ -67,16 +68,25 @@ def main():
     if not match:
         raise SystemExit('origin 不是可识别的 GitHub 仓库')
     repo = match.group(1)
+    if args.replace_assets:
+        if args.prepare_only:
+            parser.error('--replace-assets 不能与 --prepare-only 一起使用')
+        published = json.loads(run(gh, 'release', 'view', args.version, '--repo', repo,
+                                   '--json', 'isDraft', capture=True))
+        if published['isDraft']:
+            raise SystemExit('重新上传仅适用于已正式发布的版本')
     # Refuse to overwrite an existing release/tag with different source.
     tag = run('git', 'rev-parse', '-q', '--verify', 'refs/tags/' + args.version,
               capture=True, check=False)
     head = run('git', 'rev-parse', 'HEAD', capture=True)
-    if tag and tag != head:
+    if tag and tag != head and not args.replace_assets:
         raise SystemExit('此版本标签已指向其他提交，请使用新版本号')
 
     project = PROJECT / 'SuperClipboard.xcodeproj/project.pbxproj'
     text = project.read_text()
     old_version = re.search(r'MARKETING_VERSION = ([^;]+);', text).group(1)
+    if args.replace_assets and old_version != args.version:
+        raise SystemExit('重新上传的版本必须与当前源码版本一致')
     current_build = int(re.search(r'CURRENT_PROJECT_VERSION = (\d+);', text).group(1))
     build = args.build_number or (current_build + 1 if old_version != args.version else current_build)
     text = re.sub(r'MARKETING_VERSION = [^;]+;', f'MARKETING_VERSION = {args.version};', text)
@@ -127,6 +137,29 @@ def main():
     if args.prepare_only:
         print(f'打包完成：{OUTPUT}；登录 GitHub 后重新运行同一命令即可发布。')
         return
+    if not args.replace_assets:
+        publish_source(gh, tag, args.version)
+    body_path = OUTPUT / f'release-{args.version}.md'
+    body_path.write_text(body)
+    existing = run(gh, 'release', 'view', args.version, '--repo', repo, '--json', 'isDraft',
+                   capture=True, check=False)
+    if not existing:
+        run(gh, 'release', 'create', args.version, '--repo', repo, '--verify-tag', '--draft',
+            '--title', f'{APP_DISPLAY_NAME} {args.version}', '--notes-file', body_path)
+    elif not json.loads(existing)['isDraft'] and not args.replace_assets:
+        raise SystemExit('此版本已正式发布，不覆盖附件；如需更新请使用新版本号')
+    run(gh, 'release', 'upload', args.version, *assets, '--repo', repo, '--clobber')
+    uploaded = json.loads(run(gh, 'release', 'view', args.version, '--repo', repo,
+                             '--json', 'assets', capture=True))['assets']
+    sizes = {asset['name']: asset['size'] for asset in uploaded}
+    if any(sizes.get(asset.name) != asset.stat().st_size for asset in assets):
+        raise SystemExit('远端附件大小校验失败；重新运行相同命令可续传')
+    if not args.replace_assets:
+        run(gh, 'release', 'edit', args.version, '--repo', repo, '--draft=false', '--latest')
+    print(f'发布完成：https://github.com/{repo}/releases/tag/{args.version}')
+
+
+def publish_source(gh, tag, version):
     run('git', 'fetch', 'origin', 'main')
     run('git', 'merge-base', '--is-ancestor', 'origin/main', 'HEAD')
     # Only repository source files are staged; local Xcode UI state is excluded.
@@ -136,31 +169,14 @@ def main():
     if changed == 1:
         if tag:
             raise SystemExit('已有版本标签且仍有源文件变化，请使用新版本号')
-        run('git', 'commit', '-m', f'发布 {args.version}：优化悬浮中转、液态玻璃界面与发布流程')
+        run('git', 'commit', '-m', f'发布 {version}：优化悬浮中转、液态玻璃界面与发布流程')
     elif changed != 0:
         raise SystemExit('无法检查待提交内容')
     if not tag:
-        run('git', 'tag', args.version)
+        run('git', 'tag', version)
     run('git', '-c', 'credential.helper=', '-c',
         f'credential.helper=!{shlex.quote(gh)} auth git-credential',
-        'push', '--atomic', 'origin', 'main', 'refs/tags/' + args.version)
-    body_path = OUTPUT / f'release-{args.version}.md'
-    body_path.write_text(body)
-    existing = run(gh, 'release', 'view', args.version, '--repo', repo, '--json', 'isDraft',
-                   capture=True, check=False)
-    if not existing:
-        run(gh, 'release', 'create', args.version, '--repo', repo, '--verify-tag', '--draft',
-            '--title', f'{APP_DISPLAY_NAME} {args.version}', '--notes-file', body_path)
-    elif not json.loads(existing)['isDraft']:
-        raise SystemExit('此版本已正式发布，不覆盖附件；如需更新请使用新版本号')
-    run(gh, 'release', 'upload', args.version, *assets, '--repo', repo, '--clobber')
-    uploaded = json.loads(run(gh, 'release', 'view', args.version, '--repo', repo,
-                             '--json', 'assets', capture=True))['assets']
-    sizes = {asset['name']: asset['size'] for asset in uploaded}
-    if any(sizes.get(asset.name) != asset.stat().st_size for asset in assets):
-        raise SystemExit('远端附件大小校验失败，草稿保留；重新运行脚本可续传')
-    run(gh, 'release', 'edit', args.version, '--repo', repo, '--draft=false', '--latest')
-    print(f'发布完成：https://github.com/{repo}/releases/tag/{args.version}')
+        'push', '--atomic', 'origin', 'main', 'refs/tags/' + version)
 
 
 if __name__ == '__main__':
