@@ -96,8 +96,14 @@ struct EntryAvailability: Equatable, Sendable {
 
 enum CleanupScope { case history, transfer }
 
+struct ClipboardCopyEvent: Equatable {
+    let id = UUID()
+    let entryID: UUID
+}
+
 @MainActor
 final class ClipboardStore: ObservableObject {
+    @Published private(set) var lastCopyEvent: ClipboardCopyEvent?
     @Published private(set) var availability: [UUID: EntryAvailability] = [:]
     @Published var availabilityError: String?
     private var scanningAvailability = false
@@ -212,6 +218,9 @@ final class ClipboardStore: ObservableObject {
         items.sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
             if sortOrder == .frequency && lhs.copyCount != rhs.copyCount { return lhs.copyCount > rhs.copyCount }
+            if sortOrder == .recent && lhs.lastCopiedAt != rhs.lastCopiedAt {
+                return lhs.lastCopiedAt > rhs.lastCopiedAt
+            }
             if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
             return lhs.id.uuidString < rhs.id.uuidString
         }
@@ -278,13 +287,17 @@ final class ClipboardStore: ObservableObject {
             .sink { [weak self] _ in self?.transferWindowDidClose() }
         for item in entries where item.kind == .video { ensureVideoThumbnail(for: item) }
         if observesPasteboard {
-            timer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
+            let observer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.checkPasteboard() }
             }
+            timer = observer
+            RunLoop.main.add(observer, forMode: .common)
+            lastChangeCount = -1
+            checkPasteboard()
         }
     }
 
-    private func checkPasteboard() {
+    func checkPasteboard() {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
 
@@ -306,16 +319,38 @@ final class ClipboardStore: ObservableObject {
             return
         }
 
+        // Prefer actual text over image representations generated from rich web content.
+        // Explicit image copies retain their image representation.
+        let hasImage = pasteboard.types?.contains(where: { $0 == .png || $0 == .tiff }) == true
+        if !hasImage, let string = pasteboardText(),
+           !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            record(kind: .text, fingerprint: hash(Data(string.utf8)), text: string, paths: [],
+                   payload: richTextData(), thumbnail: nil, sourceName: sourceName, sourceID: sourceID)
+            return
+        }
         if let png = pasteboardImageData() {
             record(kind: .image, fingerprint: hash(png), text: nil, paths: [], payload: png, thumbnail: nil, sourceName: sourceName, sourceID: sourceID)
             return
         }
-
-        if let string = pasteboard.string(forType: .string), !string.isEmpty {
-            let rtf = richTextData()
-            let fingerprint = hash(Data(string.utf8))
-            record(kind: .text, fingerprint: fingerprint, text: string, paths: [], payload: rtf, thumbnail: nil, sourceName: sourceName, sourceID: sourceID)
+        if let string = pasteboardText(),
+           !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            record(kind: .text, fingerprint: hash(Data(string.utf8)), text: string, paths: [],
+                   payload: richTextData(), thumbnail: nil, sourceName: sourceName, sourceID: sourceID)
         }
+    }
+
+    private func pasteboardText() -> String? {
+        if let text = pasteboard.string(forType: .string), !text.isEmpty { return text }
+        for (type, format) in [(NSPasteboard.PasteboardType.rtf, NSAttributedString.DocumentType.rtf),
+                               (.rtfd, .rtfd), (.html, .html)] {
+            var options: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: format]
+            if type == .html { options[.characterEncoding] = String.Encoding.utf8.rawValue }
+            if let data = pasteboard.data(forType: type),
+               let text = try? NSAttributedString(data: data, options: options,
+                                                 documentAttributes: nil).string,
+               !text.isEmpty { return text }
+        }
+        return pasteboard.string(forType: .URL)
     }
 
     private func imageData(from url: URL) -> Data? {
@@ -340,7 +375,9 @@ final class ClipboardStore: ObservableObject {
             return attributed.rtf(from: NSRange(location: 0, length: attributed.length), documentAttributes: rtfDocumentAttributes(documentAttributes))
         }
         if let html = pasteboard.data(forType: .html),
-           let attributed = NSAttributedString(html: html, documentAttributes: &documentAttributes) {
+           let attributed = try? NSAttributedString(data: html, options: [.documentType: NSAttributedString.DocumentType.html,
+                                                       .characterEncoding: String.Encoding.utf8.rawValue],
+                                               documentAttributes: &documentAttributes) {
             return attributed.rtf(from: NSRange(location: 0, length: attributed.length), documentAttributes: rtfDocumentAttributes(documentAttributes))
         }
         return nil
@@ -511,6 +548,7 @@ final class ClipboardStore: ObservableObject {
             guard pasteboard.writeObjects(urls as [NSURL]) else { return false }
         }
         recordCopy(of: item)
+        lastCopyEvent = ClipboardCopyEvent(entryID: item.id)
         return true
     }
 

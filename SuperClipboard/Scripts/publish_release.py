@@ -119,7 +119,7 @@ def main():
             '-scheme', 'SuperClipboard', '-configuration', 'Debug', '-derivedDataPath', derived,
             '-clonedSourcePackagesDirPath', PACKAGES, '-destination', 'platform=macOS,arch=arm64',
             'CODE_SIGNING_ALLOWED=NO', 'build')
-        for script in ['test_notebook.sh', 'test_scroll_performance.sh', 'test_transfer_shelf.sh']:
+        for script in ['test_clipboard_capture.sh', 'test_notebook.sh', 'test_scroll_performance.sh', 'test_transfer_shelf.sh']:
             run('bash', PROJECT / 'Scripts' / script, derived)
         for arch in ['arm64', 'x86_64']:
             for asset in assets:
@@ -169,7 +169,7 @@ def publish_source(gh, tag, version):
     if changed == 1:
         if tag:
             raise SystemExit('已有版本标签且仍有源文件变化，请使用新版本号')
-        run('git', 'commit', '-m', f'发布 {version}：优化悬浮中转、液态玻璃界面与发布流程')
+        run('git', 'commit', '-m', f'发布 {version}：修复剪贴板记录并优化排序与复制定位')
     elif changed != 0:
         raise SystemExit('无法检查待提交内容')
     if not tag:

@@ -67,7 +67,10 @@ struct ContentView: View {
     private var visibleItems: [ClipboardEntry] {
         let current = showsNotebook ? store.notebookEntries : store.entries
         let session = showsNotebook ? notebookSession : historySession
-        return session.entries(from: current).filter { item in
+        let ordered = store.sortOrder == .recent
+            ? (showsNotebook ? store.sortedNotebookEntries : store.sortedEntries)
+            : session.entries(from: current)
+        return ordered.filter { item in
             (section == .all || item.kind.rawValue == section.rawValue) &&
             (search.isEmpty || item.searchText.localizedCaseInsensitiveContains(search))
         }
@@ -84,7 +87,7 @@ struct ContentView: View {
             header
                 .zIndex(1)
             if !showsNotebook { UnavailableRecordsBar(scope: .history) }
-            ScrollView {
+            CopyFollowingScrollView(visibleIDs: items.map(\.id)) {
                 LazyVStack(alignment: .leading, spacing: ClipboardLayout.cardGap) {
                     if items.isEmpty {
                         ContentUnavailableView(
@@ -102,6 +105,7 @@ struct ContentView: View {
                             .modifier(EntryDragSource(item: item))
                             .help("单击查看，拖到其他应用")
                             .contextMenu { EntryContextMenu(item: item) }
+                            .id(item.id)
                         }
                     }
                 }
@@ -255,14 +259,21 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(ClipboardTheme.toolbarAccent)
-                        .frame(width: 30, height: 30)
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(store.sortOrder.rawValue)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(ClipboardTheme.toolbarAccent)
+                    .padding(.horizontal, 6)
+                    .frame(height: 30)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .frame(width: 30, height: 30)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityLabel("排序：\(store.sortOrder.rawValue)")
                 .help("排序：\(store.sortOrder.rawValue)")
             }
@@ -662,6 +673,9 @@ struct MenuPopoverView: View {
     }
 
     private var visibleItems: [ClipboardEntry] {
+        if store.sortOrder == .recent {
+            return sortedItems.filter { search.isEmpty || $0.searchText.localizedCaseInsensitiveContains(search) }
+        }
         let entriesByID = Dictionary(uniqueKeysWithValues: sortedItems.map { ($0.id, $0) })
         let knownIDs = Set(sessionOrder)
         let existing = sessionOrder.compactMap { entriesByID[$0] }
@@ -737,7 +751,7 @@ struct MenuPopoverView: View {
             }
 
             if !showsNotebook { UnavailableRecordsBar(scope: .history) }
-            ScrollView {
+            CopyFollowingScrollView(visibleIDs: items.map(\.id)) {
                 LazyVStack(spacing: ClipboardLayout.cardGap) {
                     ForEach(items) { item in
                         Button {
@@ -749,6 +763,7 @@ struct MenuPopoverView: View {
                         .modifier(EntryDragSource(item: item))
                         .help("单击复制，拖到其他应用")
                         .contextMenu { EntryContextMenu(item: item) }
+                        .id(item.id)
                     }
                 }
                 .padding(ClipboardLayout.pageInset)
@@ -1872,5 +1887,33 @@ private struct ContentAvailabilityMonitor: ViewModifier {
             } message: {
                 Text(store.availabilityError ?? "")
             }
+    }
+}
+
+/// Follow successful copies after the reordered rows have reached the view hierarchy.
+private struct CopyFollowingScrollView<Content: View>: View {
+    @EnvironmentObject private var store: ClipboardStore
+    let visibleIDs: [UUID]
+    @ViewBuilder let content: () -> Content
+    @State private var pendingCopy: ClipboardCopyEvent?
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView { content() }
+                .onChange(of: store.lastCopyEvent) { _, event in
+                    pendingCopy = event
+                }
+                .task(id: pendingCopy?.id) {
+                    guard let event = pendingCopy,
+                          visibleIDs.contains(event.entryID) else { return }
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        proxy.scrollTo(event.entryID, anchor: .top)
+                    }
+                }
+        }
     }
 }

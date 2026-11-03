@@ -42,16 +42,28 @@ struct NotebookStoreTests {
         let now = Date()
         for index in records.indices {
             records[index].createdAt = now.addingTimeInterval(Double(-index * 60))
-            records[index].lastCopiedAt = now.addingTimeInterval(Double(index * 60))
+            records[index].lastCopiedAt = now.addingTimeInterval(Double((index - records.count) * 60))
         }
         try JSONEncoder().encode(records).write(to: history.appendingPathComponent("history.json"))
         let store = ClipboardStore(storageDirectory: history, defaults: defaults, pasteboard: pasteboard, observesPasteboard: false)
         precondition(store.sortOrder == .recent, "Default sorting must be chronological")
         precondition(ClipboardSortOrder(storedValue: "最近复制") == .recent)
         precondition(ClipboardSortOrder(storedValue: "复制次数") == .frequency)
-        precondition(store.sortedEntries.map(\.id) == records.map(\.id), "Time sorting must use first creation, not last copy")
-        precondition(store.copy(records[3]))
-        precondition(store.sortedEntries.map(\.id) == records.map(\.id), "Copying must not change first-time order")
+        precondition(store.sortedEntries.map(\.id) == records.reversed().map(\.id), "Time sorting must use last modification")
+        precondition(store.lastCopyEvent == nil)
+        precondition(store.copy(records[0]))
+        let firstCopy = store.lastCopyEvent
+        precondition(firstCopy?.entryID == records[0].id)
+        precondition(store.copy(records[0]))
+        precondition(store.lastCopyEvent?.entryID == records[0].id)
+        precondition(store.lastCopyEvent?.id != firstCopy?.id, "Repeated copies must trigger navigation again")
+        var missingCopy = records[0]
+        missingCopy.plainText = nil
+        missingCopy.payloadName = nil
+        let successfulCopy = store.lastCopyEvent
+        precondition(!store.copy(missingCopy))
+        precondition(store.lastCopyEvent == successfulCopy, "Failed copies must not trigger navigation")
+        precondition(store.sortedEntries.first?.id == records[0].id, "Copying must move the updated record to the front")
         store.sortOrder = .frequency
         var session = ClipboardListSession()
         session.begin(with: store.sortedEntries)
